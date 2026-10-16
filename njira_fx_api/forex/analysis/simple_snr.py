@@ -96,7 +96,7 @@ def scan(
     candles_15m: list[dict],
     pair: str = "XAUUSD",
     require_4h_touch: bool = True,
-    entry_mode: str = "next-open",            # "close" | "next-open"
+    entry_mode: str = "close",                  # "close" | "next-open"
     stop_mode: str = "window-level",          # "window-level" | "window-extreme" | "entry-candle-extreme"
     buffer: float = 0.0,
     price_near_level_pct: float = 0.0,        # >0 enables the known-gap mitigation
