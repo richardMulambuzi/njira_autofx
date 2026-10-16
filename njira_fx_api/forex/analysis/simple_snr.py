@@ -243,7 +243,10 @@ def scan(
             "buffer": buffer,
             "strategy": strategy_name,
         }
-        key = (pair, direction, round(hit_level, 8), round(mid_level, 8))
+        # Per spec ("each 4H anchor evaluated independently"), keep at most
+        # one signal per anchor time. Dedup only guards against the same 15M
+        # entry bar being paired twice with the same direction.
+        key = (pair, direction, anchor_time)
         if key in seen:
             continue
         seen.add(key)
