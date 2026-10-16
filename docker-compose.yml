@@ -1,0 +1,21 @@
+services:
+  api:
+    build: ./njira_fx_api
+    ports:
+      - "8000:9090"
+    env_file: ./njira_fx_api/.env
+    environment:
+      - RUNALL_PORT=9090
+    command: python manage.py runall --port 9090
+    restart: unless-stopped
+
+  ui:
+    build: ./njira_fx_ui
+    ports:
+      - "8100:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - api
+    restart: unless-stopped

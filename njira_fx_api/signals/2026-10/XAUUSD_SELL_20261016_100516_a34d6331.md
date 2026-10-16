@@ -1,0 +1,45 @@
+# Signal: XAUUSD SELL | 2026-10-16 10:05 UTC
+**Status:** PENDING
+
+## Entry
+| Field | Value |
+|---|---|
+| Entry | 4112.09000 |
+| Stop Loss | 4140.48000 |
+| Take Profit | 4069.50500 |
+| Risk:Reward | 1.50 |
+| Confidence | 75.00 |
+
+## Analyzer Evidence
+| Key | Value |
+|---|---|
+| analyzer | snr |
+| snr_fresh | 1.00 |
+| snr_clean | True |
+| snr_validation | 1.00 |
+| snr_rule3_ok | True |
+| snr_body_first | False |
+| in_kill_zone | — |
+| session | newyork |
+| htf_bias |  |
+| confluence_score | 7/6 |
+
+## Quality Gate (15 Questions)
+| Q | Question | Answer | Pass |
+|---|---|---|---|
+| — | not evaluated (no quality gate report) | — | — |
+
+## Confluence Score
+| Factor | Points |
+|---|---|
+| fresh level | 2 |
+| clean rejection | 1 |
+| engulfing validation | 2 |
+| rule3 confirmed | 1 |
+| london/ny session | 1 |
+| **Total** | **7** |
+
+**Confluence Gate:** PASSED (≥ 6 required)
+
+## Notes
+_Add manual observations here_

@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+myvenv/
+venv/
+.venv/
+db.sqlite3
+staticfiles/
+media/
+*.log
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# bulk market data (regenerable) + local tooling state
+historical-data/
+*.csv
+graphify-out/
+.pytest_cache/
+.tmp/
+.opencode/
+.fallow/
+
+# third-party reference material — keep out of the published repo
+PDF/SNR Malaysia.pdf

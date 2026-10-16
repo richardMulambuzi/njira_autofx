@@ -1,0 +1,9 @@
+# *
+User-agent: *
+Allow: /
+
+# Host
+Host: https://forex.xhed.net
+
+# Sitemaps
+Sitemap: https://forex.xhed.net/sitemap.xml

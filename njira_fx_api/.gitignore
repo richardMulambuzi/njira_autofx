@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtualenv (local name in this repo)
+myvenv/
+.venv/
+venv/
+
+# Django runtime artifacts (regenerable)
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+*.log
+
+# Local env / secrets
+.env
+.env.*
+
+# Bulk market data — NOT in git. Tracked by manifest instead:
+#   python manage.py csv_manifest  ->  docs/csv_manifest.json (md5 + rows + schema)
+historical-data/
+*.csv
+
+# Generated analysis output
+graphify-out/
+.pytest_cache/
+
+# generated test artifacts (signal markdown dumps)
+signals/*signals.md

@@ -1,0 +1,144 @@
+// njira_auto_fx — Verified Architecture & Data-Flow Graph (audit 2026-08-28)
+// Render: dot -Tsvg architecture_flow.dot -o architecture_flow.svg
+// Green = HEALTHY, Orange = MISALIGNED, Red = BROKEN, Grey = DEAD, Yellow = PARTIAL
+digraph njira_flow {
+  rankdir=LR;
+  splines=ortho;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10];
+  edge [color="#64748b", fontsize=8];
+
+  // ── SOURCE ────────────────────────────────────────────────
+  ctrader [label="cTrader (Pepperstone demo)\nindemw.tech", fillcolor="#d1fae5"];
+  ws [label="PepperstoneSession WS\npepperstone/client.py\nhandshake→app auth→account auth", fillcolor="#d1fae5"];
+
+  // ── INGEST ────────────────────────────────────────────────
+  onmsg [label="TicksEngine._on_message\nticks_engine.py:863", fillcolor="#d1fae5"];
+  repair [label="compute_real_price\n_repair_one_sided_tick\nticks_engine.py:79", fillcolor="#d1fae5"];
+  gap [label="GapDetector\n(300s threshold)\nticks_engine.py:199", fillcolor="#d1fae5"];
+  tickbuf [label="TickBuffer.feed\ndedup + OOO window 5s\ncap 10,000\nticks_engine.py:897", fillcolor="#d1fae5"];
+
+  // ── FAN-OUT ───────────────────────────────────────────────
+  spread [label="SpreadEngine.update\nticks_engine.py:917", fillcolor="#d1fae5"];
+  micro [label="MicrostructureEngine.feed\nticks_engine.py:912", fillcolor="#d1fae5"];
+  vpfeed [label="VolumeProfileEngine.feed_tick\n(tick-level developing profile)\nticks_engine.py:922", fillcolor="#d1fae5"];
+  candle [label="CandleRegistry.feed_tick\ncandle_engine.py\n6 TFs: 1M/5M/15M/1H/4H/1D\nticks_engine.py:192-195", fillcolor="#d1fae5"];
+  session [label="SessionEngine.update\nticks_engine.py:972", fillcolor="#d1fae5"];
+  persist [label="PersistenceBuffer (50k)\n→ BatchWriter daemon\n100 rows / 1s → ClickHouse\nticks_engine.py:987", fillcolor="#d1fae5"];
+  broadcast [label="Broadcast queue thread\n→ Pusher 'njira-market'\n4 ticks/s/symbol\nticks_engine.py:995", fillcolor="#d1fae5"];
+
+  // ── CANDLE CLOSE ──────────────────────────────────────────
+  onclose [label="TicksEngine._on_candle_close\nticks_engine.py:355", fillcolor="#d1fae5"];
+  hotcache [label="HotCache.add\n(500/symbol/TF)\ncache.py:35", fillcolor="#d1fae5"];
+  vol [label="VolatilityEngine.update\nticks_engine.py:380", fillcolor="#d1fae5"];
+  vpcandle [label="VolumeProfile.feed_candle\n(tick+TF-level)\nticks_engine.py:391", fillcolor="#d1fae5"];
+  chwrite [label="insert_candle_batch\n→ ClickHouse (best-effort)\nticks_engine.py:404", fillcolor="#fef3c7"];
+
+  // ── INTELLIGENCE ENGINES (lazy-init per TF) ───────────────
+  subgraph cluster_engines {
+    label="Intelligence Engines (per-TF, lazy-init ticks_engine.py:417)";
+    style=dashed;
+    structure [label="MarketStructureEngine\nswings / BOS / CHoCH\nmarket_structure.py", fillcolor="#d1fae5"];
+    liquidity [label="LiquidityEngine\npools / sweeps\nliquidity.py", fillcolor="#d1fae5"];
+    ob [label="OrderBlockEngine\norder_blocks.py", fillcolor="#d1fae5"];
+    fvg [label="FVGEngine\nfvg.py\n⚠ insert_fvg_batch: 0 callers\nNEVER PERSISTED", fillcolor="#fef3c7"];
+    poc [label="POCEngine\npoc.py", fillcolor="#d1fae5"];
+    vp [label="VolumeProfileEngine\nPOC/VAH/VAL/HVN/LVN\nvolume_profile.py", fillcolor="#d1fae5"];
+  }
+
+  // ── STRATEGY LAYER ────────────────────────────────────────
+  subgraph cluster_strategy {
+    label="Strategy Layer (hardcoded if/elif dispatch — NO registry)";
+    style=dashed;
+    mtf [label="MultiTimeframeStrategy\nmtf_strategy.py\n10-SMA × 7 TFs\n⚠ queries ClickHouse DIRECTLY\n(7 blocking queries/call)\nticks_engine.py:461", fillcolor="#fef3c7"];
+    malysian [label="SignalEngine._evaluate_confluence\n'smalysian' — weighted confluence\nOB+FVG+liquidity+POC+structure+VP\nreads from HotCache (all 6 TFs)\nsignal_engine.py:234", fillcolor="#d1fae5"];
+  }
+
+  // ── CONTRADICTION / LIFECYCLE ─────────────────────────────
+  contradiction [label="ContradictionEngine\n12 checks\ncontradiction.py:42\nMTF evidence: FIXED\nnet < 20 → WAIT\nnet ≥ 20 → TRADE", fillcolor="#d1fae5"];
+  lifecycle [label="SignalLifecycleManager\nCANDIDATE→WATCHING→WAITING/\nTRIGGERED→CONFIRMED\n⚠ WAITING never re-evaluated\n⚠ New signal every candle close\nsignal_lifecycle.py:115", fillcolor="#fef3c7"];
+
+  // ── OUTPUT ────────────────────────────────────────────────
+  signal [label="SignalEngine.evaluate\nwinner = max(confidence)\nempty list = NO_SIGNAL\nsignal_engine.py:123", fillcolor="#d1fae5"];
+  sigbroadcast [label="Pusher 'signal' event\nticks_engine.py:478\n+ persist signals_v2\nticks_engine.py:560", fillcolor="#d1fae5"];
+  analysis_evt [label="analysis + mtf_status events\nbuilt from HotCache\n(no CH hit)\nticks_engine.py:507-532", fillcolor="#d1fae5"];
+
+  // ── FRONTEND ──────────────────────────────────────────────
+  subgraph cluster_ui {
+    label="Frontend (Next.js 16)";
+    style=dashed;
+    reverb [label="useReverb.ts\nPusher singleton\n✅ .env.development has keys\n❌ .env.production MISSING keys\n→ realtime DEAD in prod", fillcolor="#fca5a5"];
+    marketevents [label="useMarketEvents.ts\n11 events on njira-market\nuseMarketEvents.ts:120-131", fillcolor="#d1fae5"];
+    chart [label="MarketChart\nlightweight-charts\n+ VP price lines", fillcolor="#d1fae5"];
+    feed [label="LiveSignalFeed\nstrategy badges", fillcolor="#d1fae5"];
+    vppanel [label="VolumeProfilePanel\n(Wave 4)", fillcolor="#d1fae5"];
+  }
+
+  // ── LEGACY / DEAD ─────────────────────────────────────────
+  subgraph cluster_legacy {
+    label="Legacy / Disconnected";
+    style=dashed;
+    analysis_module [label="analysis_module/\nMalaysian + MA legacy\nDISABLED by default\n(runall.py:55-58)\nRUNALL_ANALYSIS=false", fillcolor="#e2e8f0"];
+    sync [label="forex/sync/\nDEAD (flag off)\nSYNC_ENGINE_ENABLED=false", fillcolor="#e2e8f0"];
+    tradeviews [label="trade/views.py\n410 stubs (wired)\ntrade/views.py:18", fillcolor="#e2e8f0"];
+    exec_engine [label="execution_engine.py\none-shot Twisted reactor\n2nd call always fails\nexecution_engine.py:54", fillcolor="#e2e8f0"];
+    mtf_agg [label="mtf_aggregator cmd\nexists but NOT started\nby runall.py\norphaned", fillcolor="#e2e8f0"];
+    fvg_persist [label="insert_fvg_batch\nschema.py:534\n0 CALLERS — FVGs\nnever persisted", fillcolor="#fca5a5"];
+  }
+
+  // ── MISSING (from improve.md) ─────────────────────────────
+  subgraph cluster_missing {
+    label="MISSING Components (improve.md)";
+    style=dashed;
+    ctx_engine [label="❌ Shared Market Context State\n(improve.md §17)\nNo central context", fillcolor="#fca5a5"];
+    backfill [label="❌ 3-Month 1M Backfill\n(improve.md §2)\nquery_worker stub only", fillcolor="#fca5a5"];
+    event_driven [label="❌ Event-Driven Execution\n(improve.md §31)\nFull recalc on every close", fillcolor="#fca5a5"];
+    dedup [label="❌ Signal Dedup / Setup ID\n(improve.md §29)\nNew signal every close", fillcolor="#fca5a5"];
+    retest [label="❌ Retest Logic\n(improve.md §34)\nNo retest detection", fillcolor="#fca5a5"];
+    quality_gate [label="❌ Quality Gate (15 Qs)\n(improve.md §38)\nNo formal gate", fillcolor="#fca5a5"];
+    recovery [label="❌ Recovery / Gap Fill\n(improve.md §48)\nNo backfill on restart", fillcolor="#fca5a5"];
+    strategy_agreement [label="❌ Strategy Agreement\n(improve.md §21)\nOnly strongest wins", fillcolor="#fca5a5"];
+  }
+
+  // ── EDGES ─────────────────────────────────────────────────
+  ctrader -> ws -> onmsg;
+  onmsg -> repair -> gap -> tickbuf;
+  tickbuf -> spread -> micro;
+  tickbuf -> vpfeed;
+  tickbuf -> candle;
+  tickbuf -> session;
+  tickbuf -> persist;
+  tickbuf -> broadcast;
+
+  candle -> onclose;
+  onclose -> hotcache;
+  onclose -> vol;
+  onclose -> vpcandle;
+  onclose -> chwrite;
+  onclose -> structure -> liquidity -> ob -> fvg -> poc;
+  onclose -> vp;
+
+  structure -> malysian;
+  liquidity -> malysian;
+  ob -> malysian;
+  fvg -> malysian;
+  poc -> malysian;
+  vp -> malysian;
+  hotcache -> malysian [label="reads all 6 TFs"];
+  hotcache -> mtf [style=dotted, label="⚠ signal path still\nqueries CH directly"];
+
+  malysian -> contradiction [label="net ≥ 20 → TRADE"];
+  mtf -> contradiction [label="net ≥ 20 → TRADE"];
+  contradiction -> lifecycle;
+  lifecycle -> signal;
+
+  signal -> sigbroadcast;
+  signal -> analysis_evt;
+  sigbroadcast -> reverb [color="#dc2626", label="no keys in prod"];
+  reverb -> marketevents -> {chart feed vppanel};
+
+  // Missing component edges
+  ctx_engine -> malysian [style=dotted, color="#dc2626", label="MISSING"];
+  backfill -> hotcache [style=dotted, color="#dc2626", label="MISSING"];
+  event_driven -> structure [style=dotted, color="#dc2626", label="MISSING"];
+  dedup -> lifecycle [style=dotted, color="#dc2626", label="MISSING"];
+}
