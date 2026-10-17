@@ -17,12 +17,46 @@ from dataclasses import fields, replace
 from typing import Any, Optional
 
 from forex.analysis.context import MarketContextState
+from forex.analysis.bos_continuation import (
+    DEFAULT_BOS_CONTINUATION_CONFIG,
+    BOSContinuationEngine,
+)
+from forex.analysis.breaker_reversal import (
+    DEFAULT_BREAKER_REVERSAL_CONFIG,
+    BreakerReversalEngine,
+)
 from forex.analysis.daily_bias import DEFAULT_DAILY_BIAS_CONFIG, DailyBiasEngine
 from forex.analysis.dol import DEFAULT_DOL_CONFIG, DOLEngine
+from forex.analysis.fvg_entry import DEFAULT_FVG_ENTRY_CONFIG, FVGEntryEngine
+from forex.analysis.inducement_resistant import (
+    DEFAULT_INDUCEMENT_RESISTANT_CONFIG,
+    InducementResistantEngine,
+)
+from forex.analysis.mitigation_entry import (
+    DEFAULT_MITIGATION_ENTRY_CONFIG,
+    MitigationEntryEngine,
+)
+from forex.analysis.mtf_top_down import DEFAULT_MTF_TOP_DOWN_CONFIG, MtfTopDownEngine
 from forex.analysis.ote import DEFAULT_OTE_CONFIG, OTEEngine
+from forex.analysis.order_block_retest import (
+    DEFAULT_ORDER_BLOCK_RETEST_CONFIG,
+    OrderBlockRetestEngine,
+)
 from forex.analysis.premium_discount import (
     DEFAULT_PREMIUM_DISCOUNT_CONFIG,
     PremiumDiscountEngine,
+)
+from forex.analysis.premium_discount_entry import (
+    DEFAULT_PREMIUM_DISCOUNT_ENTRY_CONFIG,
+    PremiumDiscountEntryEngine,
+)
+from forex.analysis.supply_demand_zone import (
+    DEFAULT_SUPPLY_DEMAND_ZONE_CONFIG,
+    SupplyDemandZoneEngine,
+)
+from forex.analysis.sweep_mss_model import (
+    DEFAULT_SWEEP_MSS_CONFIG,
+    SweepMSSEngine,
 )
 from forex.analysis.strategy import Strategy, StrategyReport, register_strategy
 
@@ -260,4 +294,224 @@ class IctDailyBiasStrategy(_LeafStrategy):
             preconditions=["a daily open and a weekly open inside the lookback"],
             confirmations=confirmations,
             reason=f"daily bias reads {bias}",
+        )
+
+
+@register_strategy
+class IctOrderBlockRetestStrategy(_LeafStrategy):
+    name = "ict_order_block_retest"
+    leaf_engine = OrderBlockRetestEngine
+    leaf_config = DEFAULT_ORDER_BLOCK_RETEST_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no retested order block")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a retested order block"],
+            confirmations=[f"retest state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"order block retest reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctFvgEntryStrategy(_LeafStrategy):
+    name = "ict_fvg_entry"
+    leaf_engine = FVGEntryEngine
+    leaf_config = DEFAULT_FVG_ENTRY_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no fresh FVG entry")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["an open fair value gap"],
+            confirmations=[f"fvg state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"FVG entry reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctBreakerReversalStrategy(_LeafStrategy):
+    name = "ict_breaker_reversal"
+    leaf_engine = BreakerReversalEngine
+    leaf_config = DEFAULT_BREAKER_REVERSAL_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no breaker reversal")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a flipped breaker block"],
+            confirmations=[f"breaker state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"breaker reversal reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctMitigationEntryStrategy(_LeafStrategy):
+    name = "ict_mitigation_entry"
+    leaf_engine = MitigationEntryEngine
+    leaf_config = DEFAULT_MITIGATION_ENTRY_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no mitigation entry")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a mitigated block"],
+            confirmations=[f"mitigation state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"mitigation entry reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctSupplyDemandZoneStrategy(_LeafStrategy):
+    name = "ict_supply_demand_zone"
+    leaf_engine = SupplyDemandZoneEngine
+    leaf_config = DEFAULT_SUPPLY_DEMAND_ZONE_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no supply/demand zone")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a fresh supply/demand zone"],
+            confirmations=[f"zone state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"supply/demand zone reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctPremiumDiscountEntryStrategy(_LeafStrategy):
+    name = "ict_premium_discount_entry"
+    leaf_engine = PremiumDiscountEntryEngine
+    leaf_config = DEFAULT_PREMIUM_DISCOUNT_ENTRY_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no premium/discount entry")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["price in a dealing range"],
+            confirmations=[f"entry state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"premium/discount entry reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctInducementResistantStrategy(_LeafStrategy):
+    name = "ict_inducement_resistant"
+    leaf_engine = InducementResistantEngine
+    leaf_config = DEFAULT_INDUCEMENT_RESISTANT_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no inducement-resistant entry")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["an inducement-resistant setup"],
+            confirmations=[f"state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"inducement-resistant reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctBosContinuationStrategy(_LeafStrategy):
+    name = "ict_bos_continuation"
+    leaf_engine = BOSContinuationEngine
+    leaf_config = DEFAULT_BOS_CONTINUATION_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no BOS continuation")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a confirmed BOS"],
+            confirmations=[f"continuation state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"BOS continuation reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctMtfTopDownStrategy(_LeafStrategy):
+    name = "ict_mtf_top_down"
+    leaf_engine = MtfTopDownEngine
+    leaf_config = DEFAULT_MTF_TOP_DOWN_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no MTF top-down alignment")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["multi-timeframe alignment"],
+            confirmations=[f"alignment state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"MTF top-down reads {payload.get('state', 'UNKNOWN')}",
+        )
+
+
+@register_strategy
+class IctSweepMssStrategy(_LeafStrategy):
+    name = "ict_sweep_mss"
+    leaf_engine = SweepMSSEngine
+    leaf_config = DEFAULT_SWEEP_MSS_CONFIG
+    tf_seconds = 900
+
+    def evaluate(self, symbol, context=None, engine=None, for_signals=False):
+        records = self._records(symbol, engine)
+        if not records:
+            return self._inactive("no liquidity sweep + MSS")
+        payload = payload_of(records[-1])
+        direction = direction_of(records[-1])
+        return StrategyReport(
+            name=self.name, active=direction != "NEUTRAL", applicable=True,
+            direction=direction,
+            preconditions=["a liquidity sweep followed by MSS"],
+            confirmations=[f"state is {payload.get('state', 'UNKNOWN')}"],
+            reason=f"sweep + MSS reads {payload.get('state', 'UNKNOWN')}",
         )
