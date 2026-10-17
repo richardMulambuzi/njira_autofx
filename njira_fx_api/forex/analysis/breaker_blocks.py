@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from dataclasses import replace
 from typing import Optional
 
 logger = logging.getLogger("forex.analysis.breaker_blocks")
@@ -45,6 +46,9 @@ class BreakerBlockConfig:
     impulse_bars: int = 1                     # bars that make up the impulse leg after the block
     max_bars_to_breach: int = 20              # a close-through older than this no longer counts
     zone_expiry_bars: int = 60                # a block that was never breached is dropped after this
+    fallback_ignore_displacement: bool = False  # retry without the displacement gate when nothing qualifies
+    retest_tolerance_ticks: float = 0.0       # widen the flip retest overlap by this many ticks
+    sweep_lookback_bars: int = 10             # window before the block examined for a liquidity take
     pip_size: float = 0.0001
 
 
@@ -84,6 +88,9 @@ class BreakerBlock:
     breach_close: float = 0.0
     breach_bars_after_block: int = 0
     retested: bool = False
+    used_fallback: bool = False          # the block only qualified once the displacement gate was relaxed
+    swept_before_breach: bool = False    # a prior pool was taken on the way to the breach
+    strength: float = 0.0                # 0..1 composite quality score
     state: BreakerBlockState = BreakerBlockState.UNKNOWN
     current_price: float = 0.0
     created_at: object = None
@@ -105,6 +112,9 @@ class BreakerBlock:
             "breach_close": round(self.breach_close, 6),
             "breach_bars_after_block": self.breach_bars_after_block,
             "retested": self.retested,
+            "used_fallback": self.used_fallback,
+            "swept_before_breach": self.swept_before_breach,
+            "strength": round(self.strength, 4),
             "state": self.state.value,
             "current_price": round(self.current_price, 6),
         }
@@ -192,6 +202,10 @@ class BreakerBlockEngine:
         tf = tf or int(_val(candles[-1], "timeframe", default=0) or 0)
 
         index = find_zone_indices(candles, cfg)
+        used_fallback = False
+        if index is None and cfg.require_displacement and cfg.fallback_ignore_displacement:
+            index = find_zone_indices(candles, replace(cfg, require_displacement=False))
+            used_fallback = index is not None
         if index is None:
             return []
         block = candles[index]
@@ -234,7 +248,8 @@ class BreakerBlockEngine:
                     breach_bars_after_block = bars_after
                     breach_index = j
             elif breached and breach_index is not None and j > breach_index:
-                if high_of(bar) >= block_low and low_of(bar) <= block_high:
+                reach = cfg.retest_tolerance_ticks * cfg.pip_size
+                if high_of(bar) >= block_low - reach and low_of(bar) <= block_high + reach:
                     retested = True
 
         age_bars = last_index - index
@@ -246,6 +261,31 @@ class BreakerBlockEngine:
             state = BreakerBlockState.EXPIRED
         else:
             state = BreakerBlockState.FRESH
+
+        swept_before_breach = False
+        if breached and breach_index is not None:
+            window = candles[max(0, index - cfg.sweep_lookback_bars):index]
+            if window:
+                scan = range(index + 1, breach_index + 1)
+                if bullish:
+                    prior_low = min(low_of(c) for c in window)
+                    swept_before_breach = any(low_of(candles[j]) < prior_low for j in scan)
+                else:
+                    prior_high = max(high_of(c) for c in window)
+                    swept_before_breach = any(high_of(candles[j]) > prior_high for j in scan)
+
+        strength = 0.0
+        if displacement > 0 and span > 0:
+            target = max(cfg.displacement_mult * span, span * 0.1)
+            strength += 0.35 * min(displacement / target, 1.0)
+        if breached and span > 0:
+            far_edge = block_low if bullish else block_high
+            strength += 0.30 * min(abs(breach_close - far_edge) / span, 1.0)
+        if swept_before_breach:
+            strength += 0.20
+        if cfg.zone_expiry_bars > 0:
+            strength += 0.15 * (1.0 - min(age_bars / cfg.zone_expiry_bars, 1.0))
+        strength = round(min(max(strength, 0.0), 1.0), 4)
 
         original_role = "DEMAND" if bullish else "SUPPLY"
         role = original_role if not breached else ("SUPPLY" if bullish else "DEMAND")
@@ -266,6 +306,9 @@ class BreakerBlockEngine:
             breach_close=breach_close,
             breach_bars_after_block=breach_bars_after_block,
             retested=retested,
+            used_fallback=used_fallback,
+            swept_before_breach=swept_before_breach,
+            strength=strength,
             state=state,
             current_price=close_of(candles[-1]),
             created_at=_time_key(candles[-1]),

@@ -290,3 +290,171 @@ def test_default_config_identity():
     assert DEFAULT_BREAKER_BLOCK_CONFIG.displacement_mult == 1.5
     assert DEFAULT_BREAKER_BLOCK_CONFIG.pip_size == 0.0001
     assert engine().config == BreakerBlockConfig()
+
+
+def weak_demand(day=0):
+    """A 14-pip down block whose up impulse is only 10 pips: it fails the gate."""
+    return [
+        flat(0, 1.0848, day=day),
+        bar(1, 1.0852, 1.0838, close=1.0840, open_=1.0850, day=day),
+        bar(2, 1.0862, 1.0838, close=1.0860, open_=1.0840, day=day),
+    ]
+
+
+def fronted(price, day=0):
+    """demand() into a breach, with the pre-block session low moved to price."""
+    return [
+        flat(0, price, day=day),
+        bar(1, 1.0852, 1.0838, close=1.0840, open_=1.0850, day=day),
+        bar(2, 1.0875, 1.0838, close=1.0870, open_=1.0850, day=day),
+        BREACH_DOWN,
+    ]
+
+
+NEAR_MISS = bar(4, 1.0837, 1.0830, close=1.0840, open_=1.0832)
+
+
+def test_enhancement_config_defaults_are_inert():
+    cfg = BreakerBlockConfig()
+    assert cfg.fallback_ignore_displacement is False
+    assert cfg.retest_tolerance_ticks == 0.0
+    assert cfg.sweep_lookback_bars == 10
+
+
+def test_find_zone_indices_rejects_a_weak_impulse_by_default():
+    assert find_zone_indices(weak_demand(), BreakerBlockConfig()) is None
+
+
+def test_find_zone_indices_accepts_a_weak_impulse_once_the_gate_is_dropped():
+    loose = BreakerBlockConfig(require_displacement=False)
+    assert find_zone_indices(weak_demand(), loose) == 1
+
+
+def test_weak_impulse_yields_no_record_by_default():
+    eng = engine()
+    assert eng.analyze(weak_demand(), tf=900, symbol="EURUSD") == []
+    assert eng.get_all() == []
+
+
+def test_fallback_reopens_the_weak_impulse_when_enabled():
+    eng = engine(fallback_ignore_displacement=True)
+    eng.analyze(weak_demand(), tf=900, symbol="EURUSD")
+    assert len(eng.get_all()) == 1
+
+
+def test_fallback_record_is_flagged_and_still_fresh():
+    eng = engine(fallback_ignore_displacement=True)
+    eng.analyze(weak_demand(), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["used_fallback"] is True
+    assert record["state"] == "FRESH"
+    assert record["breached"] is False
+
+
+def test_fallback_flag_stays_false_on_a_qualifying_block():
+    eng = engine()
+    eng.analyze(demand(), tf=900, symbol="EURUSD")
+    assert last(eng)["used_fallback"] is False
+
+
+def test_fallback_flag_can_be_switched_off_explicitly():
+    eng = engine(fallback_ignore_displacement=False)
+    assert eng.analyze(weak_demand(), tf=900, symbol="EURUSD") == []
+
+
+def test_strength_never_leaves_the_unit_interval():
+    for candles in (demand(), supply(), weak_demand(), fronted(1.0800), fronted(1.0848)):
+        eng = engine(fallback_ignore_displacement=True)
+        eng.analyze(candles, tf=900, symbol="EURUSD")
+        record = last(eng)
+        assert record, candles
+        assert 0.0 <= record["strength"] <= 1.0
+
+
+def test_swept_before_breach_is_false_when_the_prior_low_holds():
+    eng = engine()
+    eng.analyze(fronted(1.0800), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["breached"] is True
+    assert record["swept_before_breach"] is False
+
+
+def test_swept_before_breach_is_true_when_the_prior_low_is_taken():
+    eng = engine()
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["breached"] is True
+    assert record["swept_before_breach"] is True
+
+
+def test_sweep_bonus_is_worth_twenty_points_of_strength():
+    clean = engine()
+    clean.analyze(fronted(1.0800), tf=900, symbol="EURUSD")
+    swept = engine()
+    swept.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    assert last(swept)["strength"] - last(clean)["strength"] == approx(0.20, abs=1e-4)
+
+
+def test_near_miss_retest_stays_a_plain_breach_at_zero_tolerance():
+    eng = engine()
+    eng.analyze(demand() + [BREACH_DOWN, NEAR_MISS], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["retested"] is False
+    assert record["state"] == "BREACHED"
+
+
+def test_widening_retest_tolerance_flips_the_near_miss():
+    eng = engine(retest_tolerance_ticks=10.0)
+    eng.analyze(demand() + [BREACH_DOWN, NEAR_MISS], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["retested"] is True
+    assert record["state"] == "ROLE_FLIPPED"
+
+
+def test_role_flips_to_supply_after_the_widened_retest():
+    eng = engine(retest_tolerance_ticks=10.0)
+    eng.analyze(demand() + [BREACH_DOWN, NEAR_MISS], tf=900, symbol="EURUSD")
+    assert last(eng)["role"] == "SUPPLY"
+
+
+def test_two_ticks_of_tolerance_is_enough_to_catch_the_near_miss():
+    tight = engine(retest_tolerance_ticks=0.0)
+    tight.analyze(demand() + [BREACH_DOWN, NEAR_MISS], tf=900, symbol="EURUSD")
+    assert last(tight)["state"] == "BREACHED"
+
+    loose = engine(retest_tolerance_ticks=2.0)
+    loose.analyze(demand() + [BREACH_DOWN, NEAR_MISS], tf=900, symbol="EURUSD")
+    assert last(loose)["state"] == "ROLE_FLIPPED"
+
+
+def test_quality_fields_are_serialised_and_created_at_is_not():
+    eng = engine()
+    eng.analyze(demand() + [BREACH_DOWN], tf=900, symbol="EURUSD")
+    record = last(eng)
+    for key in ("used_fallback", "swept_before_breach", "strength"):
+        assert key in record
+    assert "created_at" not in record
+
+
+def test_quality_fields_do_not_disturb_the_legacy_contract():
+    eng = engine()
+    eng.analyze(demand() + [BREACH_DOWN], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["direction"] == "BULLISH"
+    assert record["role"] == "SUPPLY"
+    assert record["block_low"] == approx(1.0838, abs=1e-6)
+    assert record["block_high"] == approx(1.0852, abs=1e-6)
+
+
+def test_sweep_lookback_window_shrinking_still_reports_a_sweep():
+    eng = engine(sweep_lookback_bars=1)
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    assert last(eng)["swept_before_breach"] is True
+
+
+def test_sweep_lookback_wider_than_the_history_is_harmless():
+    eng = engine(sweep_lookback_bars=3)
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["breached"] is True
+    assert record["swept_before_breach"] is True
