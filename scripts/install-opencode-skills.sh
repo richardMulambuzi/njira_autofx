@@ -18,3 +18,10 @@ for d in "$SRC"/*/; do
   count=$((count + 1))
 done
 echo "Installed $count skills into $DEST"
+
+# Install the local pre-commit craft gate so a fresh clone is protected too.
+if [ -d "$REPO/.git" ] && [ -f "$REPO/scripts/pre-commit-craft-gate.sh" ]; then
+  chmod +x "$REPO/scripts/pre-commit-craft-gate.sh"
+  ln -sf ../../scripts/pre-commit-craft-gate.sh "$REPO/.git/hooks/pre-commit"
+  echo "Installed pre-commit craft gate into $REPO/.git/hooks/pre-commit"
+fi
