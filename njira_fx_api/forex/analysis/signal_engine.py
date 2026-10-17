@@ -503,6 +503,10 @@ class SignalEngine:
                 if closed_tf in (60, 300):
                     continue
                 all_signals.extend(self._evaluate_mtf(symbol))
+            elif mode.startswith("ict_"):
+                # ICT/SMC premium combo: emit via the generic combo builder.
+                if closed_tf not in (60, 300):
+                    signals.extend(self._evaluate_ict_strategy(symbol, mode))
             elif mode == "malysian":
                 # Malaysian SNR needs a 4H rejection + an aligned 15M breakout.
                 # On 1M/5M closes there is no new 15M/4H bar to evaluate, so
@@ -3769,6 +3773,89 @@ class SignalEngine:
         return signal
 
     # ── Private: order-block retest pair (counter-trend fade + confirmed continuation) ─
+
+    def _evaluate_ict_strategy(self, symbol: str, mode: str) -> list[Signal]:
+        """Generic signal emission for any registered ict_* strategy.
+
+        Each premium combo is a detector, not a full signal builder. This
+        adapter turns an active combo record into a trade signal using the
+        combo's zone (entry zone) and direction, with SL beyond the zone and
+        TP at 2R. Combos without a usable zone fall back to an ATR-based
+        SL/TP around the current price. Any failure is swallowed so a single
+        combo can never block the signal path.
+        shortcut: generic 2R/zone SL applies to all combos; bespoke entry/SL/TP
+        per combo is a follow-up, when to upgrade: when a combo's real edge
+        differs from a plain zone retest.
+        """
+        signals: list[Signal] = []
+        try:
+            from forex.analysis.ict_strategies import StrategyRegistry as _SR
+            strategy_cls = _SR.get(mode)
+            if strategy_cls is None:
+                return signals
+            strategy = strategy_cls()
+            records = strategy._records(symbol, self)
+            if not records:
+                return signals
+            candles = self._cache.get(symbol, strategy.tf_seconds) if hasattr(self, "_cache") else None
+            if not candles:
+                return signals
+            price = float(candles[-1]["close"])
+            avg_range = sum(
+                float(c["high"]) - float(c["low"]) for c in candles[-14:]
+            ) / min(14, len(candles))
+            atr = avg_range if avg_range > 0 else price * 0.001
+
+            for rec in records:
+                payload = rec.to_dict() if hasattr(rec, "to_dict") else {}
+                direction = str(payload.get("direction", "")).upper()
+                if direction not in ("LONG", "SHORT"):
+                    continue
+                is_buy = direction == "LONG"
+                zone_high = float(payload.get("zone_high", 0.0) or 0.0)
+                zone_low = float(payload.get("zone_low", 0.0) or 0.0)
+                if zone_high > 0 and zone_low > 0 and zone_high > zone_low:
+                    entry = (zone_high + zone_low) / 2.0
+                    risk = zone_high - zone_low
+                    if is_buy:
+                        sl = zone_low - risk * 0.5
+                        tp = entry + risk * 2.0
+                    else:
+                        sl = zone_high + risk * 0.5
+                        tp = entry - risk * 2.0
+                else:
+                    entry = price
+                    if is_buy:
+                        sl = price - atr * 1.5
+                        tp = price + atr * 3.0
+                    else:
+                        sl = price + atr * 1.5
+                        tp = price - atr * 3.0
+                risk = abs(entry - sl) if entry != sl else atr
+                rr = abs(tp - entry) / risk if risk > 0 else 0.0
+                strength_val = float(payload.get("strength", 0.5) or 0.5)
+                confidence = max(30.0, min(90.0, strength_val * 100.0 if strength_val <= 1.0 else strength_val))
+                signal = Signal(
+                    signal_id=f"{symbol}-{mode}-{int(candles[-1].get('open_time', 0) if isinstance(candles[-1], dict) else 0)}",
+                    symbol=symbol,
+                    direction="BUY" if is_buy else "SELL",
+                    entry=entry,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    entry_zone_low=min(zone_low, zone_high) if zone_high > 0 else entry - atr * 0.5,
+                    entry_zone_high=max(zone_low, zone_high) if zone_high > 0 else entry + atr * 0.5,
+                    confidence_score=confidence,
+                    confidence_evidence={"combo": mode, "payload": payload},
+                    explanation=f"{mode} active ({direction})",
+                    strategy=mode,
+                    timeframe=str(strategy.tf_seconds),
+                    risk_reward_ratio=rr,
+                    strength=Signal.classify_strength(confidence),
+                )
+                signals.append(signal)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[SIGNAL] ict strategy %s failed for %s: %s", mode, symbol, exc)
+        return signals
 
     def _evaluate_order_block_retest(self, symbol: str) -> list[Signal]:
         """
