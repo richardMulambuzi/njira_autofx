@@ -32,7 +32,7 @@ other detector's behaviour.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Optional
 
@@ -51,6 +51,9 @@ class MitigationBlockConfig:
     impulse_bars: int = 1                     # bars that make up the impulse leg after the block
     mitigation_touch_tolerance_ticks: float = 1.0   # how close to the near edge still counts as a touch
     max_age_bars: int = 30                    # a block untouched this long is expired
+    fallback_ignore_displacement: bool = False   # retry without the displacement gate when nothing qualifies
+    invalidation_tolerance_ticks: float = 0.0    # a close must land this many ticks beyond the far edge
+    sweep_lookback_bars: int = 10                # window before the block examined for a liquidity take
     pip_size: float = 0.0001
 
 
@@ -90,6 +93,9 @@ class MitigationBlock:
     mitigation_time: object = None
     mitigation_price: float = 0.0
     invalidated: bool = False
+    used_fallback: bool = False          # the block only qualified once the displacement gate was relaxed
+    swept_before_mitigation: bool = False   # a prior pool was taken on the way back to the block
+    strength: float = 0.0                # 0..1 composite quality score
     state: MitigationBlockState = MitigationBlockState.UNKNOWN
     current_price: float = 0.0
     created_at: object = None
@@ -111,6 +117,9 @@ class MitigationBlock:
             "mitigation_time": self.mitigation_time,
             "mitigation_price": round(self.mitigation_price, 6),
             "invalidated": self.invalidated,
+            "used_fallback": self.used_fallback,
+            "swept_before_mitigation": self.swept_before_mitigation,
+            "strength": round(self.strength, 4),
             "state": self.state.value,
             "current_price": round(self.current_price, 6),
         }
@@ -198,6 +207,10 @@ class MitigationBlockEngine:
         tf = tf or int(_val(candles[-1], "timeframe", default=0) or 0)
 
         index = find_zone_indices(candles, cfg)
+        used_fallback = False
+        if index is None and cfg.require_displacement and cfg.fallback_ignore_displacement:
+            index = find_zone_indices(candles, replace(cfg, require_displacement=False))
+            used_fallback = index is not None
         if index is None:
             return []
         block = candles[index]
@@ -219,22 +232,27 @@ class MitigationBlockEngine:
             displacement = block_low - min(low_of(c) for c in impulse)
 
         tolerance = cfg.mitigation_touch_tolerance_ticks * cfg.pip_size
+        through_tolerance = cfg.invalidation_tolerance_ticks * cfg.pip_size
         last_index = len(candles) - 1
         mitigated = False
         mitigation_time = None
         mitigation_price = 0.0
+        mitigation_index = None
         invalidated = False
+        penetration = 0.0
 
         for j in range(index + 1 + cfg.impulse_bars, len(candles)):
             if j - index > cfg.max_age_bars:
                 break
             bar = candles[j]
             if bullish:
-                through = close_of(bar) < far_edge
+                through = close_of(bar) < far_edge - through_tolerance
                 touched = low_of(bar) <= near_edge + tolerance
+                penetration = max(penetration, near_edge - low_of(bar))
             else:
-                through = close_of(bar) > far_edge
+                through = close_of(bar) > far_edge + through_tolerance
                 touched = high_of(bar) >= near_edge - tolerance
+                penetration = max(penetration, high_of(bar) - near_edge)
             if through:
                 invalidated = True
                 break
@@ -242,6 +260,7 @@ class MitigationBlockEngine:
                 mitigated = True
                 mitigation_time = _time_key(bar)
                 mitigation_price = close_of(bar)
+                mitigation_index = j
 
         age_bars = last_index - index
         if invalidated:
@@ -252,6 +271,30 @@ class MitigationBlockEngine:
             state = MitigationBlockState.EXPIRED
         else:
             state = MitigationBlockState.FRESH
+
+        swept_before_mitigation = False
+        if mitigation_index is not None:
+            window = candles[max(0, index - cfg.sweep_lookback_bars):index]
+            if window:
+                scan = range(index + 1, mitigation_index + 1)
+                if bullish:
+                    prior_low = min(low_of(c) for c in window)
+                    swept_before_mitigation = any(low_of(candles[j]) < prior_low for j in scan)
+                else:
+                    prior_high = max(high_of(c) for c in window)
+                    swept_before_mitigation = any(high_of(candles[j]) > prior_high for j in scan)
+
+        strength = 0.0
+        if displacement > 0 and span > 0:
+            target = max(cfg.displacement_mult * span, span * 0.1)
+            strength += 0.35 * min(displacement / target, 1.0)
+        if mitigated and span > 0:
+            strength += 0.30 * (1.0 - min(penetration / span, 1.0))
+        if swept_before_mitigation:
+            strength += 0.20
+        if cfg.max_age_bars > 0:
+            strength += 0.15 * (1.0 - min(age_bars / cfg.max_age_bars, 1.0))
+        strength = round(min(max(strength, 0.0), 1.0), 4)
 
         record = MitigationBlock(
             symbol=symbol,
@@ -269,6 +312,9 @@ class MitigationBlockEngine:
             mitigation_time=mitigation_time,
             mitigation_price=mitigation_price,
             invalidated=invalidated,
+            used_fallback=used_fallback,
+            swept_before_mitigation=swept_before_mitigation,
+            strength=strength,
             state=state,
             current_price=close_of(candles[-1]),
             created_at=_time_key(candles[-1]),

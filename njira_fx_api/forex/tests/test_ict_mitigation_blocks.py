@@ -317,3 +317,242 @@ def test_default_config_identity():
     assert DEFAULT_MITIGATION_BLOCK_CONFIG.mitigation_touch_tolerance_ticks == 1.0
     assert DEFAULT_MITIGATION_BLOCK_CONFIG.pip_size == 0.0001
     assert engine().config == MitigationBlockConfig()
+
+
+def weak_demand(day=0):
+    """The 14-pip down block again, but the up impulse is only 10 pips."""
+    return [
+        flat(0, 1.0848, day=day),
+        bar(1, 1.0852, 1.0838, close=1.0840, open_=1.0850, day=day),
+        bar(2, 1.0862, 1.0838, close=1.0860, open_=1.0840, day=day),
+    ]
+
+
+def fronted(price, day=0):
+    """demand() with a return to the block, and the pre-block low moved to price."""
+    return [
+        flat(0, price, day=day),
+        bar(1, 1.0852, 1.0838, close=1.0840, open_=1.0850, day=day),
+        bar(2, 1.0875, 1.0838, close=1.0870, open_=1.0850, day=day),
+        MITIGATES_DEMAND,
+    ]
+
+
+def deep_mitigation(day=0):
+    """demand() with a return that buries almost the whole span inside the block."""
+    return demand(day=day) + [bar(3, 1.0860, 1.0840, close=1.0855, open_=1.0858, day=day)]
+
+
+NEAR_MISS_DEMAND = bar(3, 1.0840, 1.0830, close=1.0837, open_=1.0838)
+
+
+def test_enhancement_config_defaults_are_inert():
+    cfg = MitigationBlockConfig()
+    assert cfg.fallback_ignore_displacement is False
+    assert cfg.invalidation_tolerance_ticks == 0.0
+    assert cfg.sweep_lookback_bars == 10
+    assert cfg == DEFAULT_MITIGATION_BLOCK_CONFIG
+
+
+def test_find_zone_indices_rejects_a_weak_impulse_by_default():
+    assert find_zone_indices(weak_demand(), DEFAULT_MITIGATION_BLOCK_CONFIG) is None
+
+
+def test_find_zone_indices_accepts_a_weak_impulse_once_the_gate_is_dropped():
+    assert find_zone_indices(weak_demand(), MitigationBlockConfig(require_displacement=False)) == 1
+
+
+def test_weak_impulse_yields_no_record_by_default():
+    assert engine().analyze(weak_demand(), tf=900, symbol="EURUSD") == []
+    assert engine().get_all() == []
+
+
+def test_fallback_reopens_the_weak_impulse_when_enabled():
+    eng = engine(fallback_ignore_displacement=True)
+    eng.analyze(weak_demand(), tf=900, symbol="EURUSD")
+    assert len(eng.get_all()) == 1
+
+
+def test_fallback_record_is_flagged_and_still_fresh():
+    eng = engine(fallback_ignore_displacement=True)
+    eng.analyze(weak_demand(), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["used_fallback"] is True
+    assert record["state"] == "FRESH"
+    assert record["mitigated"] is False
+    assert record["invalidated"] is False
+    assert record["direction"] == "BULLISH"
+
+
+def test_fallback_flag_stays_false_on_a_qualifying_block():
+    eng = engine(fallback_ignore_displacement=True)
+    eng.analyze(demand(), tf=900, symbol="EURUSD")
+    assert last(eng)["used_fallback"] is False
+
+
+def test_fallback_flag_can_be_switched_off_explicitly():
+    eng = engine(fallback_ignore_displacement=True, require_displacement=False)
+    eng.analyze(weak_demand(), tf=900, symbol="EURUSD")
+    assert last(eng)["used_fallback"] is False
+
+
+def test_strength_never_leaves_the_unit_interval():
+    fixtures = [
+        demand() + [MITIGATES_DEMAND],
+        supply() + [MITIGATES_SUPPLY],
+        weak_demand(),
+        fronted(1.0800),
+        fronted(1.0848),
+        deep_mitigation(),
+    ]
+    for candles in fixtures:
+        eng = engine(fallback_ignore_displacement=True)
+        eng.analyze(candles, tf=900, symbol="EURUSD")
+        record = last(eng)
+        assert record != {}, candles
+        assert 0.0 <= record["strength"] <= 1.0
+
+
+def test_swept_before_mitigation_is_false_when_the_prior_low_holds():
+    eng = engine()
+    eng.analyze(fronted(1.0800), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "MITIGATED"
+    assert record["swept_before_mitigation"] is False
+
+
+def test_swept_before_mitigation_is_true_when_the_prior_low_is_taken():
+    eng = engine()
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "MITIGATED"
+    assert record["swept_before_mitigation"] is True
+
+
+def test_sweep_bonus_is_worth_twenty_points_of_strength():
+    clean = engine()
+    clean.analyze(fronted(1.0800), tf=900, symbol="EURUSD")
+    swept = engine()
+    swept.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    assert last(swept)["strength"] - last(clean)["strength"] == approx(0.20, abs=1e-4)
+
+
+def test_swept_before_mitigation_is_false_when_the_block_is_never_revisited():
+    eng = engine()
+    eng.analyze(fronted(1.0848)[:3], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "FRESH"
+    assert record["swept_before_mitigation"] is False
+
+
+def test_a_close_one_tick_beyond_the_far_edge_invalidates_at_zero_tolerance():
+    eng = engine()
+    eng.analyze(demand() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["invalidated"] is True
+    assert record["state"] == "INVALIDATED"
+
+
+def test_widening_the_tolerance_turns_the_near_miss_into_a_mitigation():
+    eng = engine(invalidation_tolerance_ticks=2.0)
+    eng.analyze(demand() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["invalidated"] is False
+    assert record["mitigated"] is True
+    assert record["state"] == "MITIGATED"
+
+
+def test_two_ticks_of_tolerance_is_enough_to_spare_the_near_miss():
+    strict = engine()
+    strict.analyze(demand() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    loose = engine(invalidation_tolerance_ticks=2.0)
+    loose.analyze(demand() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    assert last(strict)["state"] == "INVALIDATED"
+    assert last(loose)["state"] == "MITIGATED"
+
+
+def test_the_tolerance_knob_cannot_touch_an_unrevisited_block():
+    for tolerance in (0.0, 2.0, 20.0):
+        eng = engine(invalidation_tolerance_ticks=tolerance)
+        eng.analyze(demand(), tf=900, symbol="EURUSD")
+        assert last(eng)["state"] == "FRESH"
+
+
+def test_deeper_penetration_scores_lower():
+    shallow = engine()
+    shallow.analyze(demand() + [MITIGATES_DEMAND], tf=900, symbol="EURUSD")
+    deep = engine()
+    deep.analyze(deep_mitigation(), tf=900, symbol="EURUSD")
+    assert last(shallow)["state"] == "MITIGATED"
+    assert last(deep)["state"] == "MITIGATED"
+    assert last(deep)["strength"] < last(shallow)["strength"]
+
+
+def test_quality_fields_are_serialised_and_created_at_is_not():
+    eng = engine()
+    eng.analyze(demand() + [MITIGATES_DEMAND], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert "used_fallback" in record
+    assert "swept_before_mitigation" in record
+    assert "strength" in record
+    assert "created_at" not in record
+
+
+def test_quality_fields_do_not_disturb_the_legacy_contract():
+    eng = engine()
+    eng.analyze(demand(), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["direction"] == "BULLISH"
+    assert record["near_edge"] == approx(1.0852)
+    assert record["far_edge"] == approx(1.0838)
+    assert record["state"] == "FRESH"
+    assert record["block_span_pips"] == approx(14.0)
+
+
+def test_supply_side_still_reports_its_own_edges():
+    eng = engine()
+    eng.analyze(supply(), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["direction"] == "BEARISH"
+    assert record["near_edge"] == approx(1.0836)
+    assert record["far_edge"] == approx(1.0850)
+
+
+def test_sweep_lookback_shrinking_still_reports_a_sweep():
+    eng = engine(sweep_lookback_bars=1)
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "MITIGATED"
+    assert record["swept_before_mitigation"] is True
+
+
+def test_sweep_lookback_wider_than_the_history_is_harmless():
+    eng = engine(sweep_lookback_bars=3)
+    eng.analyze(fronted(1.0848), tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "MITIGATED"
+    assert record["swept_before_mitigation"] is True
+
+
+def test_sweep_flag_never_fires_without_a_mitigation():
+    eng = engine()
+    eng.analyze(supply() + [INVALIDATES_SUPPLY], tf=900, symbol="EURUSD")
+    record = last(eng)
+    assert record["state"] == "INVALIDATED"
+    assert record["swept_before_mitigation"] is False
+
+
+def test_events_still_use_the_legacy_names_after_the_enhancement():
+    eng = engine()
+    events = eng.analyze(demand() + [MITIGATES_DEMAND], tf=900, symbol="EURUSD")
+    names = [event["event"] for event in events]
+    assert MitigationBlockEvent.ZONE_FOUND.value in names
+    assert MitigationBlockEvent.MITIGATED.value in names
+
+
+def test_invalidation_event_still_fires_on_the_strict_read():
+    eng = engine()
+    events = eng.analyze(demand() + [INVALIDATES_DEMAND], tf=900, symbol="EURUSD")
+    names = [event["event"] for event in events]
+    assert MitigationBlockEvent.INVALIDATED.value in names
+    assert MitigationBlockEvent.MITIGATED.value not in names
