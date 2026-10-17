@@ -1,13 +1,13 @@
-# Auto FX MW — Automated Forex Trading Platform
+# Auto FX MW
 
-Auto FX MW (Auto FX Malawi) is a full-stack, broker-connected forex trading platform. It ingests live ticks, builds multi-timeframe market structure, generates trade signals from a rule-based strategy engine, applies quality and risk gates, and executes orders through cTrader / Pepperstone — with a backtesting and cost-aware measurement harness behind it.
+Auto FX MW (Auto FX Malawi) is a full-stack, broker-connected forex trading platform. It ingests live ticks, builds multi-timeframe market structure, generates trade signals from a rule-based strategy engine, applies quality and risk gates, and executes orders through cTrader / Pepperstone. A backtesting and cost-aware measurement harness sits behind the pipeline.
 
 A monorepo with two applications:
 
 | Path | What it is | Stack |
 |------|------------|-------|
-| [`njira_fx_api/`](njira_fx_api/) | Trading backend — signal engine, risk manager, broker integration, REST API | Django 5.2 + DRF, ClickHouse, cTrader Open API, background workers |
-| [`njira_fx_ui/`](njira_fx_ui/) | Web dashboard — accounts, live charts, signals, trade history | Next.js 16 + React 19 + TypeScript + Tailwind |
+| [`njira_fx_api/`](njira_fx_api/) | Trading backend: signal engine, risk manager, broker integration, REST API | Django 5.2 + DRF, ClickHouse, cTrader Open API, background workers |
+| [`njira_fx_ui/`](njira_fx_ui/) | Web dashboard: accounts, live charts, signals, trade history | Next.js 16 + React 19 + TypeScript + Tailwind |
 
 ---
 
@@ -32,7 +32,7 @@ A dedicated risk manager sits between a confirmed signal and the broker:
 - Position sizing from account balance and risk percentage per trade.
 - Dynamic stop-loss / take-profit and a minimum risk-to-reward floor.
 - Daily loss limit, daily trade count and daily volume caps.
-- Maximum spread guard — trades are refused when the spread is too wide.
+- Maximum spread guard: trades are refused when the spread is too wide.
 - Trailing stop / break-even handling on the live position.
 
 ### Market analysis & visualization
@@ -48,7 +48,7 @@ Two independent harnesses, because they answer different questions:
 |------|-----------|
 | `manage.py backtest` | Full multi-strategy simulation over a CSV, using the real analysis pipeline, with the 70% win-rate gate reported per strategy. |
 | `manage.py snr_measure` | **The cost-aware, walk-forward measurement tool.** Applies spread, slippage and commission and splits the run into out-of-sample folds. This is the only number that should drive a decision. |
-| `manage.py snr_fast` | Fast, cost-free, in-sample. Useful for smoke tests only — it overstates expectancy. |
+| `manage.py snr_fast` | Fast, cost-free, in-sample. Useful for smoke tests only; it overstates expectancy. |
 
 ### Multi-broker & operations
 - Broker abstraction layer with a Pepperstone/cTrader provider and a mock provider for development.
@@ -78,7 +78,7 @@ The repository's own walk-forward, cost-inclusive results are published rather t
 
 XAUUSD 2024 walk-forward passed 4 of 4 folds positive, with a train/test expectancy ratio of 0.59.
 
-**Known limits, stated plainly:** 2024 was an adverse year for EURUSD and no tested filter isolates it; the results are still in-sample in the sense that instrument and setup were chosen after seeing outcomes; roughly 56% of trading days produce no signal at all (structural — the enabled analyzer requires two joined 4H levels and only the two most recent are eligible). Silver (XAGUSD) is unprofitable at any win rate because the round-trip cost is 1.45–2.35R against 1R of risk — it is not traded by this system.
+**Known limits, stated plainly:** 2024 was an adverse year for EURUSD and no tested filter isolates it; the results are still in-sample in the sense that instrument and setup were chosen after seeing outcomes; roughly 56% of trading days produce no signal at all (structural: the enabled analyzer requires two joined 4H levels and only the two most recent are eligible). Silver (XAGUSD) is unprofitable at any win rate because the round-trip cost is 1.45–2.35R against 1R of risk, so the system does not trade it.
 
 Full detail: [`njira_fx_api/README.MD`](njira_fx_api/README.MD).
 
@@ -113,9 +113,9 @@ The backtest engine replays base candles through the *same* pipeline the live ti
 
 ## 4. Tech stack
 
-**Backend** — Python / Django 5.2, Django REST Framework, drf-yasg (OpenAPI), SimpleJWT, ClickHouse (tick, candle, signal and trade storage), cTrader Open API, pandas / numpy, backtrader, Gunicorn + WhiteNoise, Docker.
+**Backend**: Python / Django 5.2, Django REST Framework, drf-yasg (OpenAPI), SimpleJWT, ClickHouse (tick, candle, signal and trade storage), cTrader Open API, pandas / numpy, backtrader, Gunicorn + WhiteNoise, Docker.
 
-**Frontend** — Next.js 16, React 19, TypeScript, Tailwind CSS, Zustand, TanStack Query, lightweight-charts v5, Recharts, Framer Motion, Pusher, Firebase, Vitest, Storybook (pnpm).
+**Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS, Zustand, TanStack Query, lightweight-charts v5, Recharts, Framer Motion, Pusher, Firebase, Vitest, Storybook (pnpm).
 
 ---
 
@@ -142,7 +142,7 @@ Or bring both up with Docker:
 docker compose up -d --build     # API :9090, UI :3000
 ```
 
-Configuration lives in `njira_fx_api/.env` — Django secrets, database and ClickHouse connection, broker credentials, `TRADING_PROVIDER` / `TRADING_MODE`, risk limits, spread and position limits, timeframe map, JWT and mail keys. See the environment variable tables in [`njira_fx_api/README.MD`](njira_fx_api/README.MD).
+Configuration lives in `njira_fx_api/.env`: Django secrets, database and ClickHouse connection, broker credentials, `TRADING_PROVIDER` / `TRADING_MODE`, risk limits, spread and position limits, timeframe map, JWT and mail keys. See the environment variable tables in [`njira_fx_api/README.MD`](njira_fx_api/README.MD).
 
 ---
 
@@ -170,10 +170,10 @@ Configuration lives in `njira_fx_api/.env` — Django secrets, database and Clic
 
 ## 7. Documentation
 
-- Backend documentation and measured strategy results — [`njira_fx_api/README.MD`](njira_fx_api/README.MD)
-- Frontend documentation — [`njira_fx_ui/README.md`](njira_fx_ui/README.md)
-- Architecture audit — [`docs/architecture-audit.md`](docs/architecture-audit.md)
-- Live OpenAPI schema — `/swagger` on a running API instance
+- Backend documentation and measured strategy results: [`njira_fx_api/README.MD`](njira_fx_api/README.MD)
+- Frontend documentation: [`njira_fx_ui/README.md`](njira_fx_ui/README.md)
+- Architecture audit: [`docs/architecture-audit.md`](docs/architecture-audit.md)
+- Live OpenAPI schema: `/swagger` on a running API instance
 
 ---
 
@@ -185,4 +185,4 @@ This software places real orders against a live brokerage account when configure
 
 ## 9. License
 
-MIT © 2026 Richard Mlambuzi — see [LICENSE](LICENSE).
+MIT © 2026 Richard Mlambuzi. See [LICENSE](LICENSE).
