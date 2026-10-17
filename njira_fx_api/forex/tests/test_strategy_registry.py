@@ -32,7 +32,7 @@ class RegistryTests(SimpleTestCase):
         names = StrategyRegistry.names()
         self.assertIn("malysian", names)
         self.assertIn("Moving_averages", names)
-        self.assertEqual(len(StrategyRegistry.all()), 6)
+        self.assertEqual(len(StrategyRegistry.all()), 10)
 
     def test_get_returns_class(self):
         self.assertIs(StrategyRegistry.get("malysian"), MalysianStrategy)
@@ -100,9 +100,9 @@ class StrategyReportsTests(SimpleTestCase):
              patch.object(MovingAveragesStrategy, "evaluate", return_value=mtf_report):
             reports = eng.get_strategy_reports("EURUSD")
 
-        self.assertEqual(len(reports), 6)
+        self.assertEqual(len(reports), 10)
         for r in reports:
-            # This test validates the two original strategies it mocks; the 4
+            # This test validates the two original strategies it mocks; the 8
             # new ICT/SMC strategies run for real (inactive, no context) and are
             # covered by test_strategy_expansion.
             if r.name not in ("malysian", "Moving_averages"):
