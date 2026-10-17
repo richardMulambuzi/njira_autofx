@@ -731,6 +731,15 @@ class TicksEngine:
         except Exception as exc:  # noqa: BLE001 — non-fatal
             logger.debug("FVG CH persist failed for %s: %s", symbol, exc)
 
+    def _strategy_allowlist(self) -> tuple[str, ...]:
+        """ict_* combos stay unselectable until NJIRA_ICT_STRATEGIES whitelists them."""
+        ict = tuple(
+            s.strip()
+            for s in os.environ.get("NJIRA_ICT_STRATEGIES", "").split(",")
+            if s.strip()
+        )
+        return ("Moving_averages", "malysian", "both") + ict
+
     def _read_user_strategy(self) -> str:
         """Read the user's chosen strategy from ClickHouse userdetails table.
         Returns 'malysian' (default) on any failure.
@@ -754,7 +763,7 @@ class TicksEngine:
                 rows = result.result_set
                 if rows and rows[0][0]:
                     mode = rows[0][0]
-                    if mode in ("Moving_averages", "malysian", "both"):
+                    if mode in self._strategy_allowlist():
                         return mode
                 # No strategy for this user — fall through to global fallback.
             result = client.query(
@@ -763,7 +772,7 @@ class TicksEngine:
             rows = result.result_set
             if rows and rows[0][0]:
                 mode = rows[0][0]
-                if mode in ("Moving_averages", "malysian", "both"):
+                if mode in self._strategy_allowlist():
                     return mode
         except Exception as exc:
             logger.debug("Strategy read failed: %s", exc)
