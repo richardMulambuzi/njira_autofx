@@ -506,7 +506,7 @@ class SignalEngine:
             elif mode.startswith("ict_"):
                 # ICT/SMC premium combo: emit via the generic combo builder.
                 if closed_tf not in (60, 300):
-                    signals.extend(self._evaluate_ict_strategy(symbol, mode))
+                    all_signals.extend(self._evaluate_ict_strategy(symbol, mode))
             elif mode == "malysian":
                 # Malaysian SNR needs a 4H rejection + an aligned 15M breakout.
                 # On 1M/5M closes there is no new 15M/4H bar to evaluate, so
@@ -3789,8 +3789,7 @@ class SignalEngine:
         """
         signals: list[Signal] = []
         try:
-            from forex.analysis.ict_strategies import StrategyRegistry as _SR
-            strategy_cls = _SR.get(mode)
+            strategy_cls = StrategyRegistry.get(mode)
             if strategy_cls is None:
                 return signals
             strategy = strategy_cls()
