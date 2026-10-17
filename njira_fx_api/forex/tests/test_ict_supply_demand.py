@@ -353,3 +353,290 @@ def test_no_zone_returns_empty():
     eng = engine()
     candles = [flat(0, 1.0800), flat(1, 1.0800), flat(2, 1.0800)]
     assert eng.analyze(candles, tf=900, symbol="EURUSD") == []
+
+
+def small_departure_demand(day=0):
+    """A demand zone that only qualifies under the relaxed fallback gate."""
+    return [
+        flat(0, 1.0800, day=day),
+        bar(1, 1.0802, 1.0798, close=1.0801, open_=1.0799, day=day),
+        bar(2, 1.0803, 1.0799, close=1.0799, open_=1.0802, day=day),
+        bar(3, 1.0801, 1.0797, close=1.0798, open_=1.0800, day=day),
+        bar(4, 1.0814, 1.0799, close=1.0813, open_=1.0800, day=day),
+        bar(5, 1.0816, 1.0809, close=1.0812, open_=1.0814, day=day),
+        bar(6, 1.0815, 1.0806, close=1.0808, open_=1.0812, day=day),
+    ]
+
+
+def sweep_demand(day=0):
+    """A demand zone whose return leg takes out a prior low (liquidity sweep)."""
+    return [
+        flat(0, 1.0800, day=day),
+        flat(1, 1.0800, day=day),
+        flat(2, 1.0800, day=day),
+        flat(3, 1.0800, day=day),
+        bar(4, 1.0801, 1.0796, close=1.0800, open_=1.0800, day=day),
+        flat(5, 1.0800, day=day),
+        bar(6, 1.0802, 1.0798, close=1.0801, open_=1.0800, day=day),
+        bar(7, 1.0803, 1.0799, close=1.0799, open_=1.0802, day=day),
+        bar(8, 1.0801, 1.0797, close=1.0798, open_=1.0800, day=day),
+        bar(9, 1.0850, 1.0798, close=1.0849, open_=1.0800, day=day),
+        bar(10, 1.0810, 1.0790, close=1.0799, open_=1.0805, day=day),
+    ]
+
+
+def intact_prior_low_demand(day=0):
+    """Same sweep geometry but the prior low is deep enough that nothing takes it."""
+    cs = sweep_demand(day=day)
+    cs[4] = bar(4, 1.0801, 1.0780, close=1.0800, open_=1.0800, day=day)
+    return cs
+
+
+NEAR_MISS_DEMAND = bar(7, 1.0804, 1.0794, close=1.0796, open_=1.0800)
+
+
+def test_fallback_off_a_subthreshold_departure_is_silent():
+    eng = engine(atr_period=3)
+    assert eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD") == []
+
+
+def test_fallback_ignores_the_departure_gate_when_enabled():
+    eng = engine(atr_period=3, fallback_ignore_departure=True)
+    events = eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD")
+    assert events != []
+    rec = last(eng)
+    assert rec["used_fallback"] is True
+    assert rec["side"] == SupplyDemandSide.DEMAND.value
+
+
+def test_fallback_flag_is_false_on_a_qualifying_zone():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    assert last(eng)["used_fallback"] is False
+
+
+def test_fallback_atr_mult_is_honoured_when_raised():
+    eng = engine(atr_period=3, fallback_ignore_departure=True, fallback_atr_mult=1.2)
+    assert eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD") == []
+
+
+def test_fallback_atr_mult_relaxes_further_when_lowered():
+    eng = engine(atr_period=3, fallback_ignore_departure=True, fallback_atr_mult=0.7)
+    events = eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD")
+    assert events != []
+    assert last(eng)["used_fallback"] is True
+
+
+def test_fallback_relaxation_does_not_change_zone_geometry():
+    eng = engine(atr_period=3, fallback_ignore_departure=True)
+    eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["zone_high"] == approx(1.0801)
+    assert rec["zone_low"] == approx(1.0797)
+    assert rec["base_bars"] == 3
+    assert rec["departure_move_pips"] == approx(10.0)
+
+
+def test_prior_liquidity_sweep_is_flagged():
+    eng = engine()
+    eng.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["swept_before_touch"] is True
+    assert rec["state"] == SupplyDemandState.TOUCHED.value
+
+
+def test_sweep_lookback_zero_disables_the_sweep_flag():
+    eng = engine(sweep_lookback_bars=0)
+    eng.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    assert last(eng)["swept_before_touch"] is False
+
+
+def test_sweep_flag_costs_exactly_twenty_points_of_strength():
+    swept = engine(sweep_lookback_bars=10)
+    swept.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    nosweep = engine(sweep_lookback_bars=0)
+    nosweep.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    delta = swept.get_all()[0]["strength"] - nosweep.get_all()[0]["strength"]
+    assert delta == approx(0.20, abs=1e-4)
+
+
+def test_no_sweep_when_the_prior_low_is_left_intact():
+    eng = engine()
+    eng.analyze(intact_prior_low_demand(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["swept_before_touch"] is False
+    assert rec["state"] == SupplyDemandState.TOUCHED.value
+
+
+def test_swept_flag_is_false_on_a_fresh_untouched_zone():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["swept_before_touch"] is False
+    assert rec["state"] == SupplyDemandState.FRESH.value
+
+
+def test_break_tolerance_spares_a_near_miss_close():
+    eng = engine(break_tolerance_ticks=2.0)
+    eng.analyze(demand_base() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["broken"] is False
+    assert rec["touched"] is True
+    assert rec["state"] == SupplyDemandState.TOUCHED.value
+
+
+def test_break_tolerance_zero_still_breaks_the_near_miss():
+    eng = engine(break_tolerance_ticks=0.0)
+    eng.analyze(demand_base() + [NEAR_MISS_DEMAND], tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["broken"] is True
+    assert rec["touched"] is False
+    assert rec["state"] == SupplyDemandState.BROKEN.value
+
+
+def test_break_tolerance_is_inert_on_an_untouched_zone():
+    a = engine(break_tolerance_ticks=0.0)
+    b = engine(break_tolerance_ticks=2.0)
+    a.analyze(demand_base(), tf=900, symbol="EURUSD")
+    b.analyze(demand_base(), tf=900, symbol="EURUSD")
+    assert a.get_all() == b.get_all()
+
+
+def test_breaker_takes_precedence_over_touch():
+    eng = engine()
+    eng.analyze(demand_base() + [BREAKS_DEMAND], tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["broken"] is True
+    assert rec["touched"] is False
+
+
+def test_strength_is_bounded_for_every_state():
+    for candles in (demand_base(), demand_base() + [TOUCHES_DEMAND], demand_base() + [BREAKS_DEMAND], sweep_demand()):
+        eng = engine()
+        eng.analyze(candles, tf=900, symbol="EURUSD")
+        s = last(eng)["strength"]
+        assert 0.0 <= s <= 1.0
+
+
+def test_strength_rounds_to_four_decimals():
+    eng = engine()
+    eng.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    s = last(eng)["strength"]
+    assert s == round(s, 4)
+
+
+def test_strength_rewards_a_clean_resolution_over_a_deep_penetration():
+    shallow = engine()
+    shallow.analyze(demand_base() + [TOUCHES_DEMAND], tf=900, symbol="EURUSD")
+    deep = engine()
+    deep.analyze(demand_base() + [bar(7, 1.0810, 1.0790, close=1.0800, open_=1.0807)], tf=900, symbol="EURUSD")
+    assert deep.get_all()[0]["strength"] < shallow.get_all()[0]["strength"]
+
+
+def test_new_to_dict_keys_are_present():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert "used_fallback" in rec
+    assert "swept_before_touch" in rec
+    assert "strength" in rec
+
+
+def test_created_at_is_absent_from_the_record():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    assert "created_at" not in last(eng)
+
+
+def test_legacy_record_keys_survive_the_enhancement():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    for key in ("side", "zone_mode", "zone_high", "zone_low", "state"):
+        assert key in rec
+
+
+def test_legacy_zone_geometry_is_unchanged():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["zone_high"] == approx(1.0801)
+    assert rec["zone_low"] == approx(1.0797)
+    assert rec["departure_move_pips"] == approx(46.0)
+    assert rec["atr_pips"] == approx(18.83)
+    assert rec["base_bars"] == 3
+
+
+def test_find_zone_still_returns_a_four_tuple_including_none():
+    assert find_zone(demand_base(), DEFAULT_SUPPLY_DEMAND_CONFIG, 0.00245) == (SupplyDemandSide.DEMAND, 1, 3, 4)
+    assert find_zone([flat(0, 1.08), flat(1, 1.08)], DEFAULT_SUPPLY_DEMAND_CONFIG, 0.0) is None
+
+
+def test_compute_atr_stays_positive_on_a_real_fixture():
+    atr = compute_atr(demand_base(), 14)
+    assert atr > 0.0
+
+
+def test_event_names_are_unchanged():
+    eng = engine()
+    events = eng.analyze(demand_base() + [TOUCHES_DEMAND], tf=900, symbol="EURUSD")
+    names = [e["event"] for e in events]
+    assert SupplyDemandEvent.ZONE_FOUND.value in names
+    assert SupplyDemandEvent.TOUCHED.value in names
+
+
+def test_broken_event_is_emitted():
+    eng = engine()
+    events = eng.analyze(demand_base() + [BREAKS_DEMAND], tf=900, symbol="EURUSD")
+    names = [e["event"] for e in events]
+    assert SupplyDemandEvent.ZONE_FOUND.value in names
+    assert SupplyDemandEvent.BROKEN.value in names
+
+
+def test_event_payload_carries_the_new_keys():
+    eng = engine()
+    events = eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    ev = events[0]
+    assert "used_fallback" in ev
+    assert "swept_before_touch" in ev
+    assert "strength" in ev
+    assert "created_at" not in ev
+
+
+def test_default_config_keeps_the_new_knobs_inert():
+    cfg = DEFAULT_SUPPLY_DEMAND_CONFIG
+    assert cfg.fallback_ignore_departure is False
+    assert cfg.break_tolerance_ticks == approx(0.0)
+    assert cfg.sweep_lookback_bars == 10
+    assert cfg.fallback_atr_mult == approx(0.75)
+
+
+def test_swept_flag_true_but_zone_still_touched_state():
+    eng = engine()
+    eng.analyze(sweep_demand(), tf=900, symbol="EURUSD")
+    rec = last(eng)
+    assert rec["swept_before_touch"] is True
+    assert rec["state"] == SupplyDemandState.TOUCHED.value
+
+
+def test_fallback_off_leaves_used_fallback_false_everywhere():
+    eng = engine(atr_period=3)
+    eng.analyze(small_departure_demand(), tf=900, symbol="EURUSD")
+    assert all(r["used_fallback"] is False for r in eng.get_all())
+
+
+def test_get_all_and_get_active_agree():
+    eng = engine()
+    eng.analyze(demand_base(), tf=900, symbol="EURUSD")
+    assert eng.get_all() == eng.get_active()
+
+
+def test_state_ladder_is_unchanged():
+    for candles, expected in (
+        (demand_base(), SupplyDemandState.FRESH.value),
+        (demand_base() + [TOUCHES_DEMAND], SupplyDemandState.TOUCHED.value),
+        (demand_base() + [BREAKS_DEMAND], SupplyDemandState.BROKEN.value),
+    ):
+        eng = engine()
+        eng.analyze(candles, tf=900, symbol="EURUSD")
+        assert last(eng)["state"] == expected

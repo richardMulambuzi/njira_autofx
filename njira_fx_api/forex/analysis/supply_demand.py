@@ -21,7 +21,7 @@ can be measured against each other instead of one silently winning.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Optional
 
@@ -41,6 +41,10 @@ class SupplyDemandConfig:
     impulse_min_atr_mult: float = 1.5
     atr_period: int = 14
     extend_zone: bool = False
+    fallback_ignore_departure: bool = False
+    fallback_atr_mult: float = 0.75
+    break_tolerance_ticks: float = 0.0
+    sweep_lookback_bars: int = 10
     pip_size: float = 0.0001
 
 
@@ -89,6 +93,9 @@ class SupplyDemandZone:
     state: str
     current_price: float
     created_at: Optional[float] = None
+    used_fallback: bool = False
+    swept_before_touch: bool = False
+    strength: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -111,6 +118,9 @@ class SupplyDemandZone:
             "broken": self.broken,
             "break_time": self.break_time,
             "state": self.state,
+            "used_fallback": self.used_fallback,
+            "swept_before_touch": self.swept_before_touch,
+            "strength": round(self.strength, 4),
             "current_price": round(self.current_price, 6),
         }
 
@@ -257,6 +267,11 @@ class SupplyDemandEngine:
 
         atr = compute_atr(candles, cfg.atr_period)
         found = find_zone(candles, cfg, atr)
+        used_fallback = False
+        if found is None and cfg.fallback_ignore_departure:
+            relaxed = replace(cfg, impulse_min_atr_mult=cfg.fallback_atr_mult)
+            found = find_zone(candles, relaxed, atr)
+            used_fallback = found is not None
         if found is None:
             return []
 
@@ -276,12 +291,16 @@ class SupplyDemandEngine:
         touch_time = None
         broken = False
         break_time = None
+        touch_index = None
+        penetration = 0.0
+        break_tolerance = cfg.break_tolerance_ticks * cfg.pip_size
 
-        for bar in candles[departure_index + 1:]:
+        for offset, bar in enumerate(candles[departure_index + 1:]):
+            j = departure_index + 1 + offset
             if side == SupplyDemandSide.DEMAND:
-                through = close_of(bar) < zone_low
+                through = close_of(bar) < zone_low - break_tolerance
             else:
-                through = close_of(bar) > zone_high
+                through = close_of(bar) > zone_high + break_tolerance
 
             if through:
                 # A close beyond the far edge ends the zone, and can never
@@ -290,9 +309,15 @@ class SupplyDemandEngine:
                 break_time = _time_key(bar)
                 break
 
-            if not touched and low_of(bar) <= zone_high and high_of(bar) >= zone_low:
-                touched = True
-                touch_time = _time_key(bar)
+            if low_of(bar) <= zone_high and high_of(bar) >= zone_low:
+                if side == SupplyDemandSide.DEMAND:
+                    penetration = max(penetration, zone_high - low_of(bar))
+                else:
+                    penetration = max(penetration, high_of(bar) - zone_low)
+                if not touched:
+                    touched = True
+                    touch_time = _time_key(bar)
+                    touch_index = j
 
         departure = candles[departure_index]
         base_high = max(high_of(c) for c in base)
@@ -309,6 +334,31 @@ class SupplyDemandEngine:
             state = SupplyDemandState.TOUCHED
         else:
             state = SupplyDemandState.FRESH
+
+        swept_before_touch = False
+        if touch_index is not None:
+            window = candles[max(0, base_start - cfg.sweep_lookback_bars):base_start]
+            if window:
+                scan = range(base_start + 1, touch_index + 1)
+                if side == SupplyDemandSide.DEMAND:
+                    prior_low = min(low_of(c) for c in window)
+                    swept_before_touch = any(low_of(candles[j]) < prior_low for j in scan)
+                else:
+                    prior_high = max(high_of(c) for c in window)
+                    swept_before_touch = any(high_of(candles[j]) > prior_high for j in scan)
+
+        zone_span = zone_high - zone_low
+        strength = 0.0
+        if atr > 0:
+            target = max(cfg.impulse_min_atr_mult, 0.1)
+            strength += 0.35 * min((departure_move / atr) / target, 1.0)
+        if touched and zone_span > 0:
+            strength += 0.30 * (1.0 - min(penetration / zone_span, 1.0))
+        if swept_before_touch:
+            strength += 0.20
+        history = max(len(candles) - 1, 1)
+        strength += 0.15 * (1.0 - min((len(candles) - 1 - departure_index) / history, 1.0))
+        strength = round(min(max(strength, 0.0), 1.0), 4)
 
         record = SupplyDemandZone(
             symbol=symbol,
@@ -329,6 +379,9 @@ class SupplyDemandEngine:
             touch_time=touch_time,
             broken=broken,
             break_time=break_time,
+            used_fallback=used_fallback,
+            swept_before_touch=swept_before_touch,
+            strength=strength,
             state=state.value,
             current_price=close_of(candles[-1]),
             created_at=_time_key(candles[-1]),
