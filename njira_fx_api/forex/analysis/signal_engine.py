@@ -39,6 +39,7 @@ from forex.analysis.retest import RetestEngine
 from forex.analysis.quality_gate import QualityGate
 from forex.analysis.polisher import SignalPolisher
 from forex.analysis.strategy import StrategyRegistry, StrategyReport
+import forex.analysis.ict_strategies  # noqa: F401  import side effect registers the ict_* strategies
 from forex.analysis.metrics import METRICS
 from forex.analysis.latency import measure_latency
 # Malaysian SNR course modules — pure functions, no engine imports.
