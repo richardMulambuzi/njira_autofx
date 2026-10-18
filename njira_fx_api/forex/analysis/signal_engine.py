@@ -39,7 +39,9 @@ from forex.analysis.retest import RetestEngine
 from forex.analysis.quality_gate import QualityGate
 from forex.analysis.polisher import SignalPolisher
 from forex.analysis.strategy import StrategyRegistry, StrategyReport
-import forex.analysis.ict_strategies  # noqa: F401  import side effect registers the ict_* strategies
+from forex.analysis.ict_strategies import (  # import side effect registers the ict_* strategies
+    direction_of as ict_direction_of,
+)
 from forex.analysis.metrics import METRICS
 from forex.analysis.latency import measure_latency
 # Malaysian SNR course modules — pure functions, no engine imports.
@@ -3806,11 +3808,11 @@ class SignalEngine:
             atr = avg_range if avg_range > 0 else price * 0.001
 
             for rec in records:
-                payload = rec.to_dict() if hasattr(rec, "to_dict") else {}
-                direction = str(payload.get("direction", "")).upper()
-                if direction not in ("LONG", "SHORT"):
+                payload = rec.to_dict() if hasattr(rec, "to_dict") else (rec if isinstance(rec, dict) else {})
+                direction = ict_direction_of(rec)
+                if direction == "NEUTRAL":
                     continue
-                is_buy = direction == "LONG"
+                is_buy = direction == "BULLISH"
                 zone_high = float(payload.get("zone_high", 0.0) or 0.0)
                 zone_low = float(payload.get("zone_low", 0.0) or 0.0)
                 if zone_high > 0 and zone_low > 0 and zone_high > zone_low:
@@ -3835,7 +3837,7 @@ class SignalEngine:
                 strength_val = float(payload.get("strength", 0.5) or 0.5)
                 confidence = max(30.0, min(90.0, strength_val * 100.0 if strength_val <= 1.0 else strength_val))
                 signal = Signal(
-                    signal_id=f"{symbol}-{mode}-{int(candles[-1].get('open_time', 0) if isinstance(candles[-1], dict) else 0)}",
+                    signal_id=f"{symbol}-{mode}-{int(self._epoch(candles[-1].get('open_time', 0)) or 0)}",
                     symbol=symbol,
                     direction="BUY" if is_buy else "SELL",
                     entry=entry,

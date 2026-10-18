@@ -66,6 +66,9 @@ _DIRECTION_KEYS = ("direction", "bias", "position", "side")
 
 _BULLISH_MARKS = ("BULL", "LONG", "BUY", "DEMAND", "DISCOUNT")
 _BEARISH_MARKS = ("BEAR", "SHORT", "SELL", "SUPPLY", "PREMIUM")
+# Whole-token only: a substring match would read "UP" inside "SUPPLY".
+_BULLISH_EXACT = ("UP",)
+_BEARISH_EXACT = ("DOWN",)
 
 
 def normalize_direction(value: Any) -> str:
@@ -74,6 +77,10 @@ def normalize_direction(value: Any) -> str:
         return "NEUTRAL"
     text = getattr(value, "value", value)
     token = text.upper() if isinstance(text, str) else str(text).upper()
+    if token in _BULLISH_EXACT:
+        return "BULLISH"
+    if token in _BEARISH_EXACT:
+        return "BEARISH"
     if any(mark in token for mark in _BULLISH_MARKS):
         return "BULLISH"
     if any(mark in token for mark in _BEARISH_MARKS):
@@ -94,7 +101,9 @@ def direction_of(record: Any) -> str:
 
 def payload_of(record: Any) -> dict:
     """A leaf record as a plain dict, so callers never touch engine internals."""
-    return record.to_dict() if hasattr(record, "to_dict") else {}
+    if hasattr(record, "to_dict"):
+        return record.to_dict()
+    return record if isinstance(record, dict) else {}
 
 
 def candles_for(engine: Any, symbol: str, tf_seconds: int) -> list[dict]:
