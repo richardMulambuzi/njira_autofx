@@ -14,7 +14,11 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Copy requirements and install dependencies (wheels available for all packages on glibc)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Work around ctrader-open-api 0.9.2 strict Twisted==24.3.0 pin conflicting with Twisted==26.4.0
+# Install ctrader-open-api without deps first, then the rest
+RUN grep -v '^ctrader-open-api' requirements.txt > /tmp/reqs-no-ctrader.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-no-ctrader.txt && \
+    pip install --no-cache-dir --no-deps ctrader-open-api==0.9.2
 
 # Copy the entire project into the container
 COPY . .
