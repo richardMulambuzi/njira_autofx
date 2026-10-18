@@ -40,7 +40,12 @@ from forex.analysis.quality_gate import QualityGate
 from forex.analysis.polisher import SignalPolisher
 from forex.analysis.strategy import StrategyRegistry, StrategyReport
 from forex.analysis.ict_strategies import (  # import side effect registers the ict_* strategies
+    confidence_of as ict_confidence_of,
     direction_of as ict_direction_of,
+    is_actionable as ict_is_actionable,
+    levels_of as ict_levels_of,
+    payload_of as ict_payload_of,
+    zones_of as ict_zones_of,
 )
 from forex.analysis.metrics import METRICS
 from forex.analysis.latency import measure_latency
@@ -3780,14 +3785,12 @@ class SignalEngine:
         """Generic signal emission for any registered ict_* strategy.
 
         Each premium combo is a detector, not a full signal builder. This
-        adapter turns an active combo record into a trade signal using the
-        combo's zone (entry zone) and direction, with SL beyond the zone and
-        TP at 2R. Combos without a usable zone fall back to an ATR-based
-        SL/TP around the current price. Any failure is swallowed so a single
-        combo can never block the signal path.
-        shortcut: generic 2R/zone SL applies to all combos; bespoke entry/SL/TP
-        per combo is a follow-up, when to upgrade: when a combo's real edge
-        differs from a plain zone retest.
+        adapter turns an active combo record into a trade signal, preferring the
+        combo's own published entry/stop/target, then its zone, and only then an
+        ATR fallback. A record that reports itself untradable is dropped. Any
+        failure is swallowed so a single combo can never block the signal path.
+        shortcut: a combo with no zone and no levels gets a generic 2R ATR stop,
+        when to upgrade: when that combo's real edge needs its own rule.
         """
         signals: list[Signal] = []
         try:
@@ -3808,34 +3811,31 @@ class SignalEngine:
             atr = avg_range if avg_range > 0 else price * 0.001
 
             for rec in records:
-                payload = rec.to_dict() if hasattr(rec, "to_dict") else (rec if isinstance(rec, dict) else {})
+                if not ict_is_actionable(rec):
+                    continue
                 direction = ict_direction_of(rec)
                 if direction == "NEUTRAL":
                     continue
                 is_buy = direction == "BULLISH"
-                zone_high = float(payload.get("zone_high", 0.0) or 0.0)
-                zone_low = float(payload.get("zone_low", 0.0) or 0.0)
-                if zone_high > 0 and zone_low > 0 and zone_high > zone_low:
+                payload = ict_payload_of(rec)
+                levels = ict_levels_of(rec)
+                zone_low, zone_high = ict_zones_of(rec)
+
+                if "entry" in levels and "stop" in levels:
+                    entry, sl = levels["entry"], levels["stop"]
+                elif zone_high > zone_low:
                     entry = (zone_high + zone_low) / 2.0
-                    risk = zone_high - zone_low
-                    if is_buy:
-                        sl = zone_low - risk * 0.5
-                        tp = entry + risk * 2.0
-                    else:
-                        sl = zone_high + risk * 0.5
-                        tp = entry - risk * 2.0
+                    band = zone_high - zone_low
+                    sl = zone_low - band * 0.5 if is_buy else zone_high + band * 0.5
                 else:
                     entry = price
-                    if is_buy:
-                        sl = price - atr * 1.5
-                        tp = price + atr * 3.0
-                    else:
-                        sl = price + atr * 1.5
-                        tp = price - atr * 3.0
-                risk = abs(entry - sl) if entry != sl else atr
-                rr = abs(tp - entry) / risk if risk > 0 else 0.0
-                strength_val = float(payload.get("strength", 0.5) or 0.5)
-                confidence = max(30.0, min(90.0, strength_val * 100.0 if strength_val <= 1.0 else strength_val))
+                    sl = price - atr * 1.5 if is_buy else price + atr * 1.5
+                risk = abs(entry - sl) or atr
+                tp = levels.get("target") or (
+                    entry + risk * 2.0 if is_buy else entry - risk * 2.0
+                )
+                rr = abs(tp - entry) / risk
+                confidence = ict_confidence_of(rec)
                 signal = Signal(
                     signal_id=f"{symbol}-{mode}-{int(self._epoch(candles[-1].get('open_time', 0)) or 0)}",
                     symbol=symbol,
@@ -3843,8 +3843,8 @@ class SignalEngine:
                     entry=entry,
                     stop_loss=sl,
                     take_profit=tp,
-                    entry_zone_low=min(zone_low, zone_high) if zone_high > 0 else entry - atr * 0.5,
-                    entry_zone_high=max(zone_low, zone_high) if zone_high > 0 else entry + atr * 0.5,
+                    entry_zone_low=zone_low if zone_high > zone_low else entry - atr * 0.5,
+                    entry_zone_high=zone_high if zone_high > zone_low else entry + atr * 0.5,
                     confidence_score=confidence,
                     confidence_evidence={"combo": mode, "payload": payload},
                     explanation=f"{mode} active ({direction})",

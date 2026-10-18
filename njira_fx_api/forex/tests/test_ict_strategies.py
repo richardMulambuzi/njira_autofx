@@ -14,11 +14,15 @@ from forex.analysis.ict_strategies import (
     IctOteStrategy,
     IctPremiumDiscountStrategy,
     candles_for,
+    confidence_of,
     direction_of,
+    is_actionable,
+    levels_of,
     normalize_direction,
     payload_of,
     run_leaf,
     with_overrides,
+    zones_of,
 )
 from forex.analysis.ote import OTEEngine
 from forex.analysis.premium_discount import (
@@ -69,8 +73,9 @@ class _StubLeaf:
         self.config = config
         self.analyzed = False
 
-    def analyze(self, candles):
+    def analyze(self, candles, tf=0, symbol="", **ctx):
         self.analyzed = True
+        self.analyzed_with = {"tf": tf, "symbol": symbol, **ctx}
         return []
 
     def get_active(self):
@@ -270,6 +275,47 @@ def test_run_leaf_passes_the_config_through():
 
     run_leaf(Capture, "sentinel", _candles())
     assert Capture.seen == "sentinel"
+
+
+def test_run_leaf_forwards_tf_symbol_and_ctx():
+    class Capture(_StubLeaf):
+        seen = None
+
+        def analyze(self, candles, tf=0, symbol="", **ctx):
+            Capture.seen = {"tf": tf, "symbol": symbol, **ctx}
+            return []
+
+    run_leaf(Capture, None, _candles(), tf=900, symbol="XAUUSD", bias={"tradeable": True})
+    assert Capture.seen == {"tf": 900, "symbol": "XAUUSD", "bias": {"tradeable": True}}
+
+
+def test_leg_direction_is_read_when_no_other_direction_key_is_present():
+    assert direction_of({"leg_direction": "BULLISH"}) == "BULLISH"
+
+
+def test_position_outranks_leg_direction():
+    assert direction_of({"leg_direction": "BULLISH", "position": "PREMIUM"}) == "BEARISH"
+
+
+def test_untradable_records_are_not_actionable():
+    assert is_actionable({"tradeable": False}) is False
+    assert is_actionable({"status": "GATE_BLOCKED"}) is False
+    assert is_actionable({"state": "MISSED"}) is True
+
+
+def test_zones_and_levels_read_each_modules_own_field_names():
+    assert zones_of({"gap_low": 4159.08, "gap_high": 4161.09}) == (4159.08, 4161.09)
+    assert zones_of({"entry_zone_low": 100.0, "entry_zone_high": 110.0}) == (100.0, 110.0)
+    assert zones_of({"direction": "LONG"}) == (0.0, 0.0)
+    assert levels_of({"entry": 1.0, "stop": 2.0, "target_price": 3.0}) == {
+        "entry": 1.0, "stop": 2.0, "target": 3.0,
+    }
+
+
+def test_confidence_comes_from_evidence_not_a_flat_default():
+    assert confidence_of({"held": True}) == 60.0
+    assert confidence_of({"held": False, "state": "MISSED"}) == 30.0
+    assert confidence_of({"strength": 0.8}) == 80.0
 
 
 @pytest.mark.parametrize("cls", ALL_ADAPTERS)

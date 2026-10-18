@@ -62,7 +62,9 @@ from forex.analysis.strategy import Strategy, StrategyReport, register_strategy
 
 logger = logging.getLogger("forex.analysis.ict_strategies")
 
-_DIRECTION_KEYS = ("direction", "bias", "position", "side")
+# `position` outranks `leg_direction`: a premium/discount setup trades the
+# position it sits in, while a bare leg direction (OTE) trades the leg.
+_DIRECTION_KEYS = ("direction", "bias", "position", "leg_direction", "side")
 
 _BULLISH_MARKS = ("BULL", "LONG", "BUY", "DEMAND", "DISCOUNT")
 _BEARISH_MARKS = ("BEAR", "SHORT", "SELL", "SUPPLY", "PREMIUM")
@@ -106,6 +108,94 @@ def payload_of(record: Any) -> dict:
     return record if isinstance(record, dict) else {}
 
 
+# Leaf modules name their zone differently: order blocks use zone_*, FVG uses
+# gap_*, OTE uses entry_zone_*, premium/discount entry uses range_*.
+_ZONE_PAIRS = (
+    ("entry_zone_low", "entry_zone_high"),
+    ("gap_low", "gap_high"),
+    ("zone_low", "zone_high"),
+    ("range_low", "range_high"),
+)
+
+# Some modules publish a finished trade and should be taken at their word
+# rather than re-derived from a zone.
+_LEVEL_KEYS = ("entry", "stop", "target")
+
+# A published target may go by another name (DOL names it target_price).
+_TARGET_ALIASES = ("target_price",)
+
+# The daily bias detector reads 4H bars in this codebase (see IctDailyBiasStrategy).
+DAILY_BIAS_TF_SECONDS = 14400
+
+
+def zones_of(record: Any) -> tuple[float, float]:
+    """The record's actionable zone, whichever key pair that module uses."""
+    payload = payload_of(record)
+    for low_key, high_key in _ZONE_PAIRS:
+        low = float(payload.get(low_key) or 0.0)
+        high = float(payload.get(high_key) or 0.0)
+        if low > 0.0 and high > low:
+            return low, high
+    return 0.0, 0.0
+
+
+def levels_of(record: Any) -> dict[str, float]:
+    """A record's own entry/stop/target, when it publishes a complete trade."""
+    payload = payload_of(record)
+    levels: dict[str, float] = {}
+    for key in _LEVEL_KEYS:
+        value = float(payload.get(key) or 0.0)
+        if value > 0.0:
+            levels[key] = value
+    if "target" not in levels:
+        for alias in _TARGET_ALIASES:
+            value = float(payload.get(alias) or 0.0)
+            if value > 0.0:
+                levels["target"] = value
+                break
+    return levels
+
+
+_BLOCKING_FLAGS = ("actionable", "tradeable", "aligned")
+
+
+def is_actionable(record: Any) -> bool:
+    """False when a record explicitly reports itself untradable."""
+    payload = payload_of(record)
+    for key in _BLOCKING_FLAGS:
+        if key in payload and payload[key] is False:
+            return False
+    return str(payload.get("status") or "").upper() != "GATE_BLOCKED"
+
+
+# Leaf records carry no `strength` field, so score from the evidence they do
+# publish instead of leaving every combo on an identical 50.
+_SCORE_UP = {"held": 10.0, "actionable": 15.0, "aligned": 15.0, "tradeable": 15.0,
+             "in_killzone": 5.0, "deep_zone": 10.0, "in_roadmap_band": 10.0}
+_SCORE_DOWN = {"held": -10.0, "actionable": -10.0, "aligned": -10.0}
+_DROPPED_STATES = ("MISSED", "BROKEN", "CONFLICT", "SHALLOW", "GATE_BLOCKED")
+
+
+def confidence_of(record: Any) -> float:
+    """Score a record from the evidence it actually carries."""
+    payload = payload_of(record)
+    raw = payload.get("strength")
+    if raw is not None:
+        value = float(raw)
+        return max(30.0, min(90.0, value * 100.0 if value <= 1.0 else value))
+
+    score = 50.0
+    for key, delta in _SCORE_UP.items():
+        if payload.get(key) is True:
+            score += delta
+    for key, delta in _SCORE_DOWN.items():
+        if payload.get(key) is False:
+            score += delta
+    if str(payload.get("state") or "").upper() in _DROPPED_STATES:
+        score -= 10.0
+    return max(30.0, min(90.0, score))
+
+
 def candles_for(engine: Any, symbol: str, tf_seconds: int) -> list[dict]:
     """Module-format candles from the SignalEngine cache, or an empty list."""
     cache = getattr(engine, "_cache", None)
@@ -129,10 +219,17 @@ def with_overrides(default: Any, overrides: dict[str, Any]) -> Any:
     return replace(default, **overrides)
 
 
-def run_leaf(engine_cls: Any, config: Any, candles: list[dict]) -> list[Any]:
+def run_leaf(
+    engine_cls: Any,
+    config: Any,
+    candles: list[dict],
+    tf: int = 0,
+    symbol: str = "",
+    **ctx: Any,
+) -> list[Any]:
     """Analyze candles with one leaf engine and return its still-active records."""
     leaf = engine_cls(config=config)
-    leaf.analyze(candles)
+    leaf.analyze(candles, tf=tf, symbol=symbol, **ctx)
     return leaf.get_active()
 
 
@@ -144,13 +241,24 @@ class _LeafStrategy(Strategy):
     tf_seconds: int = 900
     config: dict[str, Any] = {}
 
+    def _leaf_ctx(self, symbol: str, engine: Any) -> dict[str, Any]:
+        """Extra analyse() inputs this concept needs. Most need none."""
+        return {}
+
     def _records(self, symbol: str, engine: Any) -> list[Any]:
         candles = candles_for(engine, symbol, self.tf_seconds)
         if len(candles) < 3:
             return []
         config = with_overrides(self.leaf_config, self.config)
         try:
-            return run_leaf(self.leaf_engine, config, candles)
+            return run_leaf(
+                self.leaf_engine,
+                config,
+                candles,
+                tf=self.tf_seconds,
+                symbol=symbol,
+                **self._leaf_ctx(symbol, engine),
+            )
         except Exception:
             logger.warning("[ICT] %s failed on %s", self.name, symbol, exc_info=True)
             return []
@@ -510,6 +618,16 @@ class IctSweepMssStrategy(_LeafStrategy):
     leaf_engine = SweepMSSEngine
     leaf_config = DEFAULT_SWEEP_MSS_CONFIG
     tf_seconds = 900
+
+    def _leaf_ctx(self, symbol: str, engine: Any) -> dict[str, Any]:
+        """The flagship refuses to trade without the locked daily bias."""
+        candles = candles_for(engine, symbol, DAILY_BIAS_TF_SECONDS)
+        if not candles:
+            return {}
+        bias_engine = DailyBiasEngine()
+        bias_engine.analyze(candles, tf=DAILY_BIAS_TF_SECONDS, symbol=symbol)
+        active = bias_engine.get_active(limit=1)
+        return {"bias": payload_of(active[-1])} if active else {}
 
     def evaluate(self, symbol, context=None, engine=None, for_signals=False):
         records = self._records(symbol, engine)
