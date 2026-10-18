@@ -53,8 +53,8 @@ sudo systemctl enable --now njira-api
 # 6. Verify
 sudo systemctl status njira-api
 journalctl -u njira-api -f
-curl -sf http://127.0.0.1:9001/
-curl -sf http://indemw.tech:8004/
+curl -sf http://127.0.0.1:9001/api/health/
+curl -sf http://indemw.tech:8004/api/health/
 ```
 
 ---

@@ -12,11 +12,12 @@ PublishPort=127.0.0.1:9001:9090
 EnvironmentFile=/opt/apps/njira-api/app.env
 Exec=gunicorn --bind :9090 --workers 2 --threads 4 --max-requests 1000 --max-requests-jitter 100 --timeout 60 forex.wsgi:application
 PodmanArgs=--memory 768m --cpus 1
-HealthCheckCmd=curl -fsS http://127.0.0.1:9090/ || exit 1
-HealthCheckInterval=30s
-HealthCheckTimeout=10s
-HealthCheckRetries=3
-HealthCheckStartPeriod=15s
+HealthCmd=python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/api/health/', timeout=5)"
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=15s
+HealthOnFailure=kill
 
 [Install]
 WantedBy=multi-user.target
