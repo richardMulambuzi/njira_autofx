@@ -1,14 +1,20 @@
 """Tests for the single-connection H4 window streamer."""
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
+from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import ProtoMessage
 from ctrader_open_api.messages.OpenApiMessages_pb2 import (
     ProtoOAGetTrendbarsReq,
+    ProtoOAGetTrendbarsRes,
+    ProtoOASpotEvent,
     ProtoOASubscribeLiveTrendbarReq,
     ProtoOASubscribeSpotsReq,
 )
-from ctrader_open_api.messages.OpenApiModelMessages_pb2 import ProtoOAPayloadType
+from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
+    ProtoOAPayloadType,
+    ProtoOATrendbar,
+    ProtoOATrendbarPeriod,
+)
 from django.test import SimpleTestCase
 
 from forex.pepperstone.h4_window import BACKFILL_CAL_DAYS, H4_SECONDS, WINDOW_SIZE
@@ -23,8 +29,8 @@ DIGITS = 2
 
 
 def tb(epoch_ms, delta_close=500_000, volume=5):
-    """A decoded-enough trendbar: low plus deltas, XAUUSD scaled by 1e5."""
-    return SimpleNamespace(
+    """A trendbar: low plus deltas, XAUUSD scaled by 1e5."""
+    return ProtoOATrendbar(
         low=400_000_000,
         deltaOpen=1_000_000,
         deltaHigh=2_000_000,
@@ -34,19 +40,34 @@ def tb(epoch_ms, delta_close=500_000, volume=5):
     )
 
 
+def _wire(message):
+    """Wrap a specific message the way the SDK delivers it to a callback."""
+    return ProtoMessage(
+        payloadType=message.payloadType, payload=message.SerializeToString()
+    )
+
+
 def history(symbol_id, epochs):
-    return SimpleNamespace(
-        payloadType=ProtoOAPayloadType.PROTO_OA_GET_TRENDBARS_RES,
-        symbolId=symbol_id,
-        trendbar=[tb(epoch) for epoch in epochs],
+    return _wire(
+        ProtoOAGetTrendbarsRes(
+            payloadType=ProtoOAPayloadType.PROTO_OA_GET_TRENDBARS_RES,
+            ctidTraderAccountId=CREDS["account_id"],
+            period=ProtoOATrendbarPeriod.H4,
+            timestamp=epochs[-1] if epochs else BASE,
+            symbolId=symbol_id,
+            trendbar=[tb(epoch) for epoch in epochs],
+        )
     )
 
 
 def spot(symbol_id, epochs):
-    return SimpleNamespace(
-        payloadType=ProtoOAPayloadType.PROTO_OA_SPOT_EVENT,
-        symbolId=symbol_id,
-        trendbar=[tb(epoch) for epoch in epochs],
+    return _wire(
+        ProtoOASpotEvent(
+            payloadType=ProtoOAPayloadType.PROTO_OA_SPOT_EVENT,
+            ctidTraderAccountId=CREDS["account_id"],
+            symbolId=symbol_id,
+            trendbar=[tb(epoch) for epoch in epochs],
+        )
     )
 
 
@@ -159,12 +180,7 @@ class HistoryAndLiveTests(SimpleTestCase):
         self.assertEqual(len(self.window), 0)
 
     def test_spot_without_trendbars_is_ignored(self):
-        empty = SimpleNamespace(
-            payloadType=ProtoOAPayloadType.PROTO_OA_SPOT_EVENT,
-            symbolId=SYMBOL_ID,
-            trendbar=[],
-        )
-        self.session._on_stream_message(None, empty)
+        self.session._on_stream_message(None, spot(SYMBOL_ID, []))
         self.assertEqual(len(self.window), 0)
 
     def test_user_on_message_still_receives_every_payload(self):

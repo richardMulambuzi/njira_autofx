@@ -34,6 +34,7 @@ from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
     ProtoOAPayloadType,
     ProtoOATrendbarPeriod,
 )
+from ctrader_open_api.protobuf import Protobuf
 
 from forex.pepperstone.client import PepperstoneSession, price_scale
 from forex.pepperstone.h4_window import H4Window, backfill_start_ms
@@ -166,9 +167,9 @@ class WindowSession(PepperstoneSession):
     def _on_stream_message(self, client: object, message: object) -> None:
         payload_type = getattr(message, "payloadType", None)
         if payload_type == ProtoOAPayloadType.PROTO_OA_GET_TRENDBARS_RES:
-            self._handle_history(message)
+            self._handle_history(Protobuf.extract(message))
         elif payload_type == ProtoOAPayloadType.PROTO_OA_SPOT_EVENT:
-            self._handle_spot(message)
+            self._handle_spot(Protobuf.extract(message))
         if self._user_on_message is not None:
             self._user_on_message(client, message)
 
