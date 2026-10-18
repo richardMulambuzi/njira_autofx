@@ -46,11 +46,15 @@ from forex.pepperstone import client as ps_client
 from forex.pepperstone import execution_engine as ps_exec
 from forex.pepperstone import ticks_engine as ps_ticks
 from forex.pepperstone.client import (
+    PROTOBUF_DEMO_HOST,
+    PROTOBUF_LIVE_HOST,
     PepperstoneSession,
     compute_real_price,
     compute_spread_pips,
     get_credentials,
     price_scale,
+    resolve_environment,
+    resolve_host,
 )
 from forex.pepperstone.execution_engine import TradeExecutor
 from forex.pepperstone.query_worker import QueryWorker
@@ -181,6 +185,37 @@ class PriceScaleTests(SimpleTestCase):
         # Back-compat: no symbol -> raw / 10**digits, never 1e5.
         self.assertEqual(compute_real_price(110500, 5), 1.105)
         self.assertEqual(compute_real_price(155123, 3), 155.123)
+
+
+# ---------------------------------------------------------------------------
+# Environment (demo vs live) resolution
+# ---------------------------------------------------------------------------
+class EnvironmentResolutionTests(SimpleTestCase):
+    """The demo/live switch is driven solely by PEPPERSTONE_ENVIRONMENT."""
+
+    def test_defaults_to_demo_when_unset(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PEPPERSTONE_ENVIRONMENT", None)
+            self.assertEqual(resolve_environment(), "demo")
+            self.assertEqual(resolve_host(), PROTOBUF_DEMO_HOST)
+
+    def test_live_resolves_to_the_live_host(self):
+        with mock.patch.dict(os.environ, {"PEPPERSTONE_ENVIRONMENT": "live"}):
+            self.assertEqual(resolve_environment(), "live")
+            self.assertEqual(resolve_host(), PROTOBUF_LIVE_HOST)
+
+    def test_value_is_case_and_whitespace_insensitive(self):
+        with mock.patch.dict(os.environ, {"PEPPERSTONE_ENVIRONMENT": " LIVE "}):
+            self.assertEqual(resolve_environment(), "live")
+
+    def test_explicit_argument_beats_the_environment(self):
+        with mock.patch.dict(os.environ, {"PEPPERSTONE_ENVIRONMENT": "live"}):
+            self.assertEqual(resolve_host("demo"), PROTOBUF_DEMO_HOST)
+
+    def test_unknown_value_is_rejected(self):
+        with mock.patch.dict(os.environ, {"PEPPERSTONE_ENVIRONMENT": "production"}):
+            with self.assertRaises(RuntimeError):
+                resolve_environment()
 
 
 class QueryWorkerTimeoutTests(SimpleTestCase):

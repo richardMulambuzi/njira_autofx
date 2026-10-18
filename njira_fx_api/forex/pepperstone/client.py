@@ -74,9 +74,29 @@ TOKEN_EXPIRED_CODES = frozenset({"CH_ACCESS_TOKEN_INVALID", "OA_AUTH_TOKEN_EXPIR
 # ---------------------------------------------------------------------------
 DEFAULT_PEPPERSTONE_ACCOUNT_ID = 5327660
 PROTOBUF_DEMO_HOST = EndPoints.PROTOBUF_DEMO_HOST
-# NOTE: the SDK exposes only a single shared port constant — there is no
+PROTOBUF_LIVE_HOST = EndPoints.PROTOBUF_LIVE_HOST
+# NOTE: the SDK exposes only a single shared port constant: there is no
 # PROTOBUF_DEMO_PORT attribute (verified against the installed 0.9.2 package).
+# Demo and live share this port; only the host differs.
 PROTOBUF_DEMO_PORT = EndPoints.PROTOBUF_PORT
+
+
+def resolve_environment() -> str:
+    """Return the cTrader environment to connect to: ``"live"`` or ``"demo"``."""
+    environment = os.environ.get("PEPPERSTONE_ENVIRONMENT", "demo").strip().lower()
+    if environment not in ("live", "demo"):
+        raise RuntimeError(
+            "PEPPERSTONE_ENVIRONMENT must be 'live' or 'demo', "
+            f"got {environment!r}"
+        )
+    return environment
+
+
+def resolve_host(environment: Optional[str] = None) -> str:
+    """Map an environment name to its protobuf host."""
+    if (environment or resolve_environment()) == "live":
+        return PROTOBUF_LIVE_HOST
+    return PROTOBUF_DEMO_HOST
 
 # Friendly explanations for the error codes the API sends in ProtoOAErrorRes
 # (string errorCode, e.g. "CH_ACCESS_TOKEN_INVALID"). Kept as plain strings so
@@ -300,9 +320,16 @@ def refresh_access_token(
 # ---------------------------------------------------------------------------
 # Client construction
 # ---------------------------------------------------------------------------
-def build_client(retry_policy: Optional[Callable[[int], float]] = None) -> Client:
+def build_client(
+    retry_policy: Optional[Callable[[int], float]] = None,
+    host: Optional[str] = None,
+) -> Client:
     """
-    Build a cTrader Open API ``Client`` for the demo protobuf endpoint.
+    Build a cTrader Open API ``Client`` for the configured environment.
+
+    ``host`` overrides ``PEPPERSTONE_ENVIRONMENT`` (``"live"`` or ``"demo"``);
+    an unset or unrecognised ``host`` falls back to the environment, which
+    itself defaults to ``"demo"``.
 
     ``retry_policy`` is forwarded to ``ClientService``: a callable taking the
     number of consecutive failed connection attempts and returning the seconds
@@ -310,7 +337,7 @@ def build_client(retry_policy: Optional[Callable[[int], float]] = None) -> Clien
     backoff (retries indefinitely).
     """
     return Client(
-        PROTOBUF_DEMO_HOST,
+        host or resolve_host(),
         PROTOBUF_DEMO_PORT,
         TcpProtocol,
         retryPolicy=retry_policy,
@@ -426,7 +453,9 @@ class PepperstoneSession:
         self.on_error = on_error
         self.on_disconnected = on_disconnected
 
-        self.client = build_client(retry_policy=retry_policy)
+        self.environment = resolve_environment()
+        self.host = resolve_host(self.environment)
+        self.client = build_client(retry_policy=retry_policy, host=self.host)
 
         # symbolName -> (symbolId, digits)
         self.symbols_map: dict = {}
@@ -472,7 +501,11 @@ class PepperstoneSession:
 
     # -- connected ----------------------------------------------------------
     def _on_connected(self, client: object) -> None:
-        logger.info("Connected to cTrader Open API at %s", PROTOBUF_DEMO_HOST)
+        logger.info(
+            "Connected to cTrader Open API at %s (%s environment)",
+            self.host,
+            self.environment,
+        )
         self._authenticated = False
         self._symbols_loaded = False
         self._token_refresh_attempted = False
