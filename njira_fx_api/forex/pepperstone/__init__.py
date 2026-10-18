@@ -7,6 +7,9 @@ Owned by the integration-engineer. Provides:
                           price/spread helpers.
 * ``ticks_engine``      — long-running spot-tick streamer (ClickHouse + HTTP).
 * ``execution_engine``  — non-blocking market-order execution.
+* ``h4_window``         the strict 300-bar H4 ring buffer.
+* ``window_session``    one connection streaming H4 bars into one window
+                          per symbol.
 
 Backend-dev may import the public functions/classes below; nothing here
 touches Django views, urls, or the clickhouse schema module.
@@ -23,6 +26,12 @@ from forex.pepperstone.client import (
     price_scale,
 )
 from forex.pepperstone.ticks_engine import MAX_RECONNECT_ATTEMPTS, TicksEngine
+from forex.pepperstone.h4_window import (
+    BACKFILL_CAL_DAYS,
+    WINDOW_SIZE,
+    H4Window,
+)
+from forex.pepperstone.window_session import WindowSession
 from forex.pepperstone.execution_engine import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     TradeExecutor,
@@ -40,6 +49,10 @@ __all__ = [
     "price_scale",
     "MAX_RECONNECT_ATTEMPTS",
     "TicksEngine",
+    "BACKFILL_CAL_DAYS",
+    "WINDOW_SIZE",
+    "H4Window",
+    "WindowSession",
     "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
     "TradeExecutor",
 ]
