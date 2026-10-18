@@ -1,7 +1,8 @@
 [Unit]
 Description=Njira FX API
-After=network-online.target
+After=network-online.target njira-api-migrate.service
 Wants=network-online.target
+Requires=njira-api-migrate.service
 
 [Container]
 Image=njira-api:local
@@ -10,6 +11,8 @@ Network=apps
 NetworkAlias=njira-api
 PublishPort=127.0.0.1:9001:9090
 EnvironmentFile=/opt/apps/njira-api/app.env
+Volume=/opt/apps/njira-api/data/db.sqlite3:/app/db.sqlite3:Z
+Volume=/opt/apps/njira-api/data/signals:/app/signals:Z
 Exec=gunicorn --bind :9090 --workers 2 --threads 4 --max-requests 1000 --max-requests-jitter 100 --timeout 60 forex.wsgi:application
 PodmanArgs=--memory 768m --cpus 1
 HealthCmd=python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/api/health/', timeout=5)"

@@ -1,0 +1,25 @@
+[Unit]
+Description=Njira FX API database migration and static collection
+Before=njira-api.service
+Wants=njira-api.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/mkdir -p /opt/apps/njira-api/data/signals
+ExecStartPre=/usr/bin/touch /opt/apps/njira-api/data/db.sqlite3
+ExecStart=/usr/bin/podman run --rm \
+  --volume /opt/apps/njira-api/data/db.sqlite3:/app/db.sqlite3:Z \
+  --volume /opt/apps/njira-api/data/signals:/app/signals:Z \
+  --env-file /opt/apps/njira-api/app.env \
+  njira-api:local \
+  python manage.py migrate --noinput
+ExecStart=/usr/bin/podman run --rm \
+  --volume /opt/apps/njira-api/data/db.sqlite3:/app/db.sqlite3:Z \
+  --volume /opt/apps/njira-api/data/signals:/app/signals:Z \
+  --env-file /opt/apps/njira-api/app.env \
+  njira-api:local \
+  python manage.py collectstatic --noinput
+
+[Install]
+WantedBy=multi-user.target

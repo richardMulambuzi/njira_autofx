@@ -7,6 +7,7 @@ This directory contains the files needed to deploy the Njira FX API on `server.i
 | File | Target Path on Host | Purpose |
 |------|---------------------|---------|
 | `njira-api.container` | `/etc/containers/systemd/njira-api.container` | Systemd quadlet for the API container |
+| `njira-api-migrate.service` | `/etc/systemd/system/njira-api-migrate.service` | Systemd oneshot for migrate and collectstatic |
 | `gateway-8004.conf.snippet` | Append inside `http { }` of `/opt/apps/gateway/nginx.conf` | Nginx server block for port 8004 |
 | `app.env.example` | `/opt/apps/njira-api/app.env` (user creates) | Environment variable template |
 
@@ -28,9 +29,10 @@ This directory contains the files needed to deploy the Njira FX API on `server.i
 ## Apply Sequence (copy-paste on host)
 
 ```bash
-# 1. Place the quadlet
+# 1. Place the quadlet and migration service
 sudo mkdir -p /etc/containers/systemd
 sudo cp deploy/podman/njira-api.container /etc/containers/systemd/njira-api.container
+sudo cp deploy/podman/njira-api-migrate.service /etc/systemd/system/njira-api-migrate.service
 
 # 2. Create the app.env from the example (fill in real secrets, mode 600)
 sudo mkdir -p /opt/apps/njira-api
@@ -46,12 +48,13 @@ cat deploy/podman/gateway-8004.conf.snippet | sudo tee -a /opt/apps/gateway/ngin
 # 4. Reload nginx in the gateway container (runs on host network)
 sudo podman exec lb nginx -t && sudo podman exec lb nginx -s reload
 
-# 5. Reload systemd and start the API quadlet
+# 5. Reload systemd and start the API quadlet (migration runs automatically via Requires)
 sudo systemctl daemon-reload
 sudo systemctl enable --now njira-api
 
 # 6. Verify
 sudo systemctl status njira-api
+sudo systemctl status njira-api-migrate
 journalctl -u njira-api -f
 curl -sf http://127.0.0.1:9001/api/health/
 curl -sf http://indemw.tech:8004/api/health/
@@ -74,18 +77,20 @@ journalctl -u njira-api -n 100 --no-pager
 ## Rollback
 
 ```bash
-# Stop and disable the API quadlet
+# Stop and disable the API quadlet and migration service
 sudo systemctl disable --now njira-api
+sudo systemctl disable --now njira-api-migrate
 
-# Remove the quadlet
+# Remove the quadlet and migration service
 sudo rm /etc/containers/systemd/njira-api.container
+sudo rm /etc/systemd/system/njira-api-migrate.service
 sudo systemctl daemon-reload
 
 # Restore gateway nginx config
 sudo mv /opt/apps/gateway/nginx.conf.bak /opt/apps/gateway/nginx.conf
 sudo podman exec lb nginx -t && sudo podman exec lb nginx -s reload
 
-# Remove app.env (optional, contains secrets)
+# Remove app.env and data (optional, contains secrets and database)
 # sudo rm -rf /opt/apps/njira-api
 ```
 
