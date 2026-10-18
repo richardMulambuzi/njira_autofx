@@ -325,18 +325,25 @@ def build_client(retry_policy: Optional[Callable[[int], float]] = None) -> Clien
 # 1000x too large. FX majors decode correctly with 10**digits.
 _FIXED_METAL_DIVISOR = 100_000
 _MAGNITUDE_INFER_THRESHOLD = 100_000  # raw/100 > this -> assume 1e5
+# Oil perpetuals stream raw/1e5 like metals while reporting digits=3, so
+# WTOIL-PERP decodes exactly 100x too high on the 10**digits path.
+_OIL_PREFIXES = ("WTOIL", "BRENTOIL", "XTI")
 
 
 def price_scale(symbol: str | None, digits: int = 5, raw=None) -> int:
     """Return the raw->real divisor for ``symbol``.
 
     * XAU*/XAG* (any suffix/case) -> 100000 (metals are raw/1e5).
+    * Oil names (WTOIL/BRENTOIL/XTI*) -> 100000 (oil perpetuals share
+      the metal scale; digits=3 + 10**digits would be 100x too big).
     * Unknown symbols with a huge ``raw`` (``abs(raw)/100 > 100000``,
       i.e. raw > 10M) -> 100000 (magnitude inference for new metals).
     * Everything else -> ``10 ** max(digits, 0)`` (FX majors, JPY-safe).
     """
     sym = (symbol or "").strip().upper()
     if sym.startswith("XAU") or sym.startswith("XAG"):
+        return _FIXED_METAL_DIVISOR
+    if sym.startswith(_OIL_PREFIXES):
         return _FIXED_METAL_DIVISOR
     if raw is not None:
         try:

@@ -98,6 +98,33 @@ class DecodeTrendbarsTests(SimpleTestCase):
         )
 
 
+class OilPerpetualScaleTests(SimpleTestCase):
+    def test_oil_perpetual_decodes_on_the_metal_scale(self):
+        bar = ProtoOATrendbar(
+            low=9_800_000,
+            deltaOpen=10_000,
+            deltaHigh=20_000,
+            deltaClose=74_000,
+            utcTimestampInMinutes=BASE // 60_000,
+            volume=5,
+        )
+        decoded = decode_trendbars([bar], "WTOIL-PERP", 3)[0]
+        self.assertAlmostEqual(decoded["low"], 98.0, places=2)
+        self.assertAlmostEqual(decoded["close"], 98.74, places=2)
+
+    def test_soft_commodities_keep_their_digit_scale(self):
+        bar = ProtoOATrendbar(
+            low=400_000,
+            deltaOpen=0,
+            deltaHigh=0,
+            deltaClose=0,
+            utcTimestampInMinutes=BASE // 60_000,
+            volume=5,
+        )
+        decoded = decode_trendbars([bar], "SoyOil", 3)[0]
+        self.assertAlmostEqual(decoded["close"], 400.0, places=2)
+
+
 class StreamReadyTests(SimpleTestCase):
     def setUp(self):
         self.session = make_session()
