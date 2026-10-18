@@ -37,3 +37,6 @@ graphify-out/
 
 # third-party reference material — keep out of the published repo
 PDF/SNR Malaysia.pdf
+
+# generated signal cards (runtime output, not source)
+njira_fx_api/signals/*/
