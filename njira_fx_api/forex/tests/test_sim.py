@@ -49,6 +49,9 @@ class InstrumentTests(SimpleTestCase):
     def test_jpy_pip_size(self):
         self.assertEqual(get_spec("USDJPY").pip_size, 0.01)
 
+    def test_gold_pip_size(self):
+        self.assertEqual(get_spec("XAUUSD").pip_size, 0.1)
+
     def test_pips_conversion(self):
         s = get_spec("EURUSD")
         self.assertAlmostEqual(s.pips(0.0015), 15.0)

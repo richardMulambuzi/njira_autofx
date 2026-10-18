@@ -46,7 +46,7 @@ CONCEPT_SOURCES = ("ict_bpr", "balanced_price_range")
 class BprConfig:
     min_overlap_pct: float = 0.0         # overlap depth as a share of the smaller gap
     max_bars_apart: int = 20             # how far the two gaps may form from each other
-    pip_size: float = 0.0001             # unit for reported heights; 0.01 for gold
+    pip_size: float = 0.0001             # unit for reported heights; the caller sets it per symbol
     tick_size: float = 0.00001
 
 

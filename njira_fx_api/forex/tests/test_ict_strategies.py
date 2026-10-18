@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 import pytest
@@ -22,6 +23,7 @@ from forex.analysis.ict_strategies import (
     payload_of,
     run_leaf,
     with_overrides,
+    with_symbol_pip_size,
     zones_of,
 )
 from forex.analysis.ote import OTEEngine
@@ -30,6 +32,11 @@ from forex.analysis.premium_discount import (
     PremiumDiscountEngine,
 )
 from forex.analysis.strategy import Strategy, StrategyRegistry
+
+
+@dataclass(frozen=True)
+class _NoPipSize:
+    size: int = 1
 
 
 class _Direction(Enum):
@@ -244,6 +251,22 @@ def test_candles_for_returns_empty_when_the_cache_raises():
     engine = Exploding()
     engine._cache = _FakeCache(_candles())
     assert candles_for(engine, "EURUSD", 900) == []
+
+
+def test_with_symbol_pip_size_uses_the_symbol_contract():
+    """Gold is 0.1 per pip, not the 0.0001 every leaf config defaults to."""
+    assert DEFAULT_PREMIUM_DISCOUNT_CONFIG.pip_size == 0.0001
+
+    gold = with_symbol_pip_size(DEFAULT_PREMIUM_DISCOUNT_CONFIG, "XAUUSD")
+    assert gold.pip_size == 0.1
+
+    fx = with_symbol_pip_size(DEFAULT_PREMIUM_DISCOUNT_CONFIG, "EURUSD")
+    assert fx.pip_size == 0.0001
+
+
+def test_with_symbol_pip_size_passes_through_a_config_without_the_field():
+    blank = _NoPipSize()
+    assert with_symbol_pip_size(blank, "XAUUSD") is blank
 
 
 def test_with_overrides_returns_the_default_when_empty():

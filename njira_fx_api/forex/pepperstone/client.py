@@ -620,6 +620,17 @@ class PepperstoneSession:
             logger.info("Price scales: %s", scales)
         except Exception:  # noqa: BLE001 — logging must never break handshake
             pass
+        # Same reason as the price scales above: a symbol whose real pip size is
+        # not what the contract table assumes skews every reported pip figure.
+        try:
+            pips = ", ".join(
+                f"{self._light_symbol_names[s.symbolId]}/pip={10 ** -s.pipPosition}"
+                for s in response.symbol
+                if s.symbolId in self._light_symbol_names
+            )
+            logger.info("Broker pip sizes: %s", pips)
+        except Exception:  # noqa: BLE001 - logging must never break handshake
+            pass
         if self.on_ready is not None:
             self.on_ready(dict(self.symbols_map))
 

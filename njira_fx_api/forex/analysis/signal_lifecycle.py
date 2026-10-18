@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
+from forex.sim.instruments import get_spec
+
 logger = logging.getLogger("forex.analysis.signal_lifecycle")
 
 SCHEMA_VERSION = "1.0"
@@ -609,9 +611,8 @@ class SignalLifecycleManager:
             result["reason"] = f"Partial TP at {current_r:.2f}R ({partial_tp_fraction*100:.0f}% closed, SL→BE)"
 
         # 2) Activate trailing stop at 1R (or after partial TP)
-        # Convert pip distance to price (EURUSD: 1 pip = 0.0001, JPY: 1 pip = 0.01)
         symbol = signal.symbol.upper()
-        pip_size = 0.01 if "JPY" in symbol else 0.0001
+        pip_size = get_spec(symbol).pip_size
         trail_distance_price = (atr_pips if atr_pips is not None else trailing_pips) * pip_size
         
         if not trailing_active and current_r >= partial_tp_r:

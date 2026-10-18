@@ -59,6 +59,7 @@ from forex.analysis.sweep_mss_model import (
     SweepMSSEngine,
 )
 from forex.analysis.strategy import Strategy, StrategyReport, register_strategy
+from forex.sim.instruments import get_spec
 
 logger = logging.getLogger("forex.analysis.ict_strategies")
 
@@ -209,6 +210,13 @@ def candles_for(engine: Any, symbol: str, tf_seconds: int) -> list[dict]:
         return []
 
 
+def with_symbol_pip_size(config: Any, symbol: str) -> Any:
+    """Set pip_size from the symbol: every leaf config defaults to FX 0.0001."""
+    if "pip_size" not in {field.name for field in fields(config)}:
+        return config
+    return replace(config, pip_size=get_spec(symbol).pip_size)
+
+
 def with_overrides(default: Any, overrides: dict[str, Any]) -> Any:
     """Fold an adapter's config overrides into a frozen leaf Config."""
     if not overrides:
@@ -250,6 +258,8 @@ class _LeafStrategy(Strategy):
         if len(candles) < 3:
             return []
         config = with_overrides(self.leaf_config, self.config)
+        if "pip_size" not in self.config:
+            config = with_symbol_pip_size(config, symbol)
         try:
             return run_leaf(
                 self.leaf_engine,

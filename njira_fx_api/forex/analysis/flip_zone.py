@@ -40,7 +40,7 @@ class FlipZoneConfig:
     confirm_close_pct: float = 0.0      # how far past the far edge, as a fraction of zone height
     allow_wick_confirm: bool = False    # False = a CLOSE must lead; True = a wick alone is enough
     max_age_bars: int = 30              # a zone older than this is dropped
-    pip_size: float = 0.0001            # unit for the reported height; 0.01 for gold
+    pip_size: float = 0.0001            # unit for the reported height; the caller sets it per symbol
 
 
 DEFAULT_FLIP_ZONE_CONFIG = FlipZoneConfig()
