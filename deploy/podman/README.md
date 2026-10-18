@@ -17,12 +17,12 @@ This directory contains the files needed to deploy the Njira FX API on `server.i
 
 - Host: `server.indemw.tech` (129.121.74.200), AlmaLinux 9.8
 - Podman 5.8.2 (rootful), 2 vCPU, ~2.4 GiB usable RAM
-- Podman network `apps` already exists
 - Gateway container `lb` runs `nginx:alpine` on host network, config at `/opt/apps/gateway/nginx.conf`
 - Existing `upstream app_pool` already points at `127.0.0.1:9001` and `127.0.0.1:9002`
 - Ports 8004, 9001, 9002 confirmed free
 - API image `njira-api:local` built and available locally
-- Container listens on port 9090 internally, WSGI app `forex.wsgi:application`
+- API container runs on **host network** (not `apps` bridge) for working DNS; binds `127.0.0.1:9001` directly
+- WSGI app `forex.wsgi:application`
 
 ---
 
