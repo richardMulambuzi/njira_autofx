@@ -14,11 +14,16 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Copy requirements and install dependencies (wheels available for all packages on glibc)
 COPY requirements.txt .
-# Work around ctrader-open-api 0.9.2 strict Twisted==24.3.0 pin conflicting with Twisted==26.4.0
-# Install ctrader-open-api without deps first, then the rest
-RUN grep -v '^ctrader-open-api' requirements.txt > /tmp/reqs-no-ctrader.txt && \
-    pip install --no-cache-dir -r /tmp/reqs-no-ctrader.txt && \
-    pip install --no-cache-dir --no-deps ctrader-open-api==0.9.2
+# Work around two pre-existing dependency conflicts in requirements.txt:
+# 1. ctrader-open-api 0.9.2 pins Twisted==24.3.0, but Twisted==26.4.0 is required
+# 2. pyOpenSSL==26.2.0 requires cryptography<49, but platform marker selects cryptography>=49.0.0 on Linux
+# Strategy: install cryptography first (gets >=49.0.0), then pyOpenSSL & ctrader-open-api with --no-deps,
+# then the remaining requirements.
+RUN pip install --no-cache-dir "cryptography>=49.0.0" && \
+    pip install --no-cache-dir --no-deps pyOpenSSL==26.2.0 && \
+    pip install --no-cache-dir --no-deps ctrader-open-api==0.9.2 && \
+    grep -v -E '^(ctrader-open-api|pyOpenSSL==|cryptography)' requirements.txt > /tmp/reqs-clean.txt && \
+    pip install --no-cache-dir -r /tmp/reqs-clean.txt
 
 # Copy the entire project into the container
 COPY . .
