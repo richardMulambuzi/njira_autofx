@@ -1,0 +1,22 @@
+[Unit]
+Description=Njira FX API
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=njira-api:local
+ContainerName=njira-api
+Network=apps
+NetworkAlias=njira-api
+PublishPort=127.0.0.1:9001:9090
+EnvironmentFile=/opt/apps/njira-api/app.env
+Exec=gunicorn --bind :9090 --workers 2 --threads 4 --max-requests 1000 --max-requests-jitter 100 --timeout 60 forex.wsgi:application
+PodmanArgs=--memory 768m --cpus 1
+HealthCheckCmd=curl -fsS http://127.0.0.1:9090/ || exit 1
+HealthCheckInterval=30s
+HealthCheckTimeout=10s
+HealthCheckRetries=3
+HealthCheckStartPeriod=15s
+
+[Install]
+WantedBy=multi-user.target
