@@ -85,6 +85,10 @@ HISTORY_PERIODS: dict[int, int] = {
 }
 HISTORY_COUNT = 1000
 
+# The broker rate limits a burst of history requests and answers with a fatal
+# payload error, so they are spaced out instead of sent in one loop.
+HISTORY_REQUEST_INTERVAL = 0.5
+
 
 def _trendbar_to_candle(
     symbol: str, tf: int, bar: dict, now_ms: int
@@ -1136,24 +1140,44 @@ class TicksEngine:
 
         The engine holds one authenticated connection, so history costs no
         extra handshake and no extra process. The window is clamped to
-        ``HISTORY_COUNT`` bars per timeframe, wider windows would silently
-        return the oldest slice of the range rather than the newest.
+        ``HISTORY_COUNT`` bars per timeframe; wider windows would silently
+        return the oldest slice of the range rather than the newest. Requests
+        are spread ``HISTORY_REQUEST_INTERVAL`` seconds apart because the
+        broker rate limits a burst.
         """
+        from twisted.internet import reactor
+
         now_ms = int(time.time() * 1000)
         floor_ms = backfill_start_ms(now_ms)
+        delay = 0.0
         for symbol_id in symbol_ids:
             for period, tf in HISTORY_PERIODS.items():
-                span_ms = HISTORY_COUNT * tf * 1000
-                self.session.client.send(
-                    ProtoOAGetTrendbarsReq(
-                        ctidTraderAccountId=self.credentials["account_id"],
-                        symbolId=symbol_id,
-                        fromTimestamp=max(floor_ms, now_ms - span_ms),
-                        toTimestamp=now_ms,
-                        period=period,
-                        count=HISTORY_COUNT,
-                    )
+                reactor.callLater(
+                    delay,
+                    self._send_history_request,
+                    symbol_id,
+                    period,
+                    tf,
+                    now_ms,
+                    floor_ms,
                 )
+                delay += HISTORY_REQUEST_INTERVAL
+
+    def _send_history_request(
+        self, symbol_id: int, period: int, tf: int, now_ms: int, floor_ms: int
+    ) -> None:
+        """Send one trendbar request. Runs on the reactor thread."""
+        span_ms = HISTORY_COUNT * tf * 1000
+        self.session.client.send(
+            ProtoOAGetTrendbarsReq(
+                ctidTraderAccountId=self.credentials["account_id"],
+                symbolId=symbol_id,
+                fromTimestamp=max(floor_ms, now_ms - span_ms),
+                toTimestamp=now_ms,
+                period=period,
+                count=HISTORY_COUNT,
+            )
+        )
 
     def _load_history(self, message: object) -> None:
         """Replace the hot cache entry for one timeframe with broker history."""
@@ -1328,6 +1352,12 @@ class TicksEngine:
                 pass  # broadcaster is behind — drop, realtime is best-effort
 
     def _on_error(self, message: str) -> None:
+        if "BLOCKED_PAYLOAD_TYPE" in message:
+            # A rate limit is not fatal: the ClientService retries the
+            # connection, and killing the engine here would stop the tick
+            # stream entirely.
+            logger.warning("Broker rate limited a request: %s", message)
+            return
         logger.error("Fatal session error: %s", message)
         self.exit_code = 1
         self.shutdown_event.set()

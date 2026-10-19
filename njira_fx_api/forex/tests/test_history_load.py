@@ -1,5 +1,6 @@
 """Tests for the broker-sourced history load into the hot cache."""
 
+import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -137,3 +138,19 @@ class LoadHistoryTests(SimpleTestCase):
         engine = self._engine(symbols_by_id={})
         engine._load_history(history(ProtoOATrendbarPeriod.H4, [BASE], symbol_id=9999))
         self.assertEqual(engine._hot_cache.get("XAUUSD", H4_SECONDS), [])
+
+
+class ErrorHandlingTests(SimpleTestCase):
+    """A broker rate limit must not take the tick stream down with it."""
+
+    def _engine(self):
+        engine = TicksEngine.__new__(TicksEngine)
+        engine.exit_code = 0
+        engine.shutdown_event = threading.Event()
+        return engine
+
+    def test_rate_limit_does_not_shut_down_the_engine(self):
+        engine = self._engine()
+        engine._on_error("cTrader error BLOCKED_PAYLOAD_TYPE: You are being rate limited")
+        self.assertEqual(engine.exit_code, 0)
+        self.assertFalse(engine.shutdown_event.is_set())
