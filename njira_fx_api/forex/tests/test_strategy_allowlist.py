@@ -39,3 +39,40 @@ class StrategyAllowlistTests(SimpleTestCase):
             _allowlist(NJIRA_ICT_STRATEGIES="ict_ote, ict_sweep_mss"),
             BASE + ("ict_ote", "ict_sweep_mss"),
         )
+
+
+def _registered_ict() -> list[str]:
+    import forex.analysis.ict_strategies  # noqa: F401  (registers the combos)
+    from forex.analysis.signal_engine import StrategyRegistry
+
+    return sorted(n for n in StrategyRegistry._registry if n.startswith("ict_"))
+
+
+class IctReachabilityTests(SimpleTestCase):
+    """Every registered ict_* combo must be selectable and reach evaluate()."""
+
+    def test_all_registered_ict_strategies_are_allowlisted(self):
+        names = _registered_ict()
+        self.assertEqual(len(names), 14)
+        self.assertEqual(_allowlist(NJIRA_ICT_STRATEGIES=",".join(names)), BASE + tuple(names))
+
+    def test_with_ict_puts_every_combo_in_the_live_mode_string(self):
+        from forex.pepperstone.ticks_engine import TicksEngine
+
+        names = _registered_ict()
+        eng = TicksEngine(symbols=["EURUSD"])
+        clean = {k: v for k, v in os.environ.items() if k != "NJIRA_ICT_STRATEGIES"}
+        clean["NJIRA_ICT_STRATEGIES"] = ",".join(names)
+        with patch.dict(os.environ, clean, clear=True):
+            modes = eng._with_ict("malysian").split(",")
+        self.assertEqual(modes, ["malysian"] + names)
+
+    def test_with_ict_expands_both(self):
+        from forex.pepperstone.ticks_engine import TicksEngine
+
+        eng = TicksEngine(symbols=["EURUSD"])
+        clean = {k: v for k, v in os.environ.items() if k != "NJIRA_ICT_STRATEGIES"}
+        clean["NJIRA_ICT_STRATEGIES"] = "ict_ote"
+        with patch.dict(os.environ, clean, clear=True):
+            modes = eng._with_ict("both").split(",")
+        self.assertEqual(modes, ["malysian", "Moving_averages", "ict_ote"])

@@ -801,8 +801,8 @@ class TicksEngine:
                 elif state_val == "WAITING":
                     METRICS.increment("signals_waiting")
                 logger.info(
-                    "[SIGNAL] %s %s @ %.5f conf=%.0f RR=%.1f",
-                    sig.symbol, sig.direction, sig.entry,
+                    "[SIGNAL] %s %s %s @ %.5f conf=%.0f RR=%.1f",
+                    sig.symbol, sig.strategy, sig.direction, sig.entry,
                     sig.confidence_score, sig.risk_reward_ratio,
                 )
                 # Broadcast signal to Pusher
