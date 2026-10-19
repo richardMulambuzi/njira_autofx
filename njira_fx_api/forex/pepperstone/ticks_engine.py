@@ -1116,7 +1116,9 @@ class TicksEngine:
             return
         bid, ask = repaired
         METRICS.increment("ticks_processed")
-        timestamp_ms = event.timestamp
+        # cTrader omits the timestamp on most spot events; without this the
+        # dedup/staleness buffer discards the whole feed as duplicate zero-timestamp ticks.
+        timestamp_ms = event.timestamp or int(time.time() * 1000)
 
         # ── Gap detection (Phase 2.7) ───────────────────────────────────
         self._gap_detector.check(symbol_name, timestamp_ms)
