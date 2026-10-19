@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
@@ -37,12 +37,14 @@ class BatchWriter:
         batch_size: int = DEFAULT_BATCH_SIZE,
         flush_interval: float = DEFAULT_FLUSH_INTERVAL,
         ingest_url: Optional[str] = None,
+        local_sink: Optional[Callable[[list], None]] = None,
     ) -> None:
         self._buffer = buffer
         self._client = client
         self._batch_size = max(1, int(batch_size))
         self._flush_interval = max(0.05, float(flush_interval))
         self._ingest_url = ingest_url
+        self._local_sink = local_sink
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._total_flushed = 0
@@ -106,6 +108,8 @@ class BatchWriter:
         ch_ok = self._flush_clickhouse(rows) if attempted else False
         if self._ingest_url:
             self._flush_ingest(rows)
+        if self._local_sink:
+            self._local_sink(rows)
         duration = time.monotonic() - start
         with self._lock:
             self._flush_durations.append(duration)

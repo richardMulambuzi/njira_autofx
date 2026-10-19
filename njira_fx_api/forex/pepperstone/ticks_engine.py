@@ -46,6 +46,7 @@ from forex.pepperstone.client import (
 )
 from forex.analysis.candle_engine import CandleRegistry
 from forex.analysis.cache import HotCache
+from forex.analysis.tick_store import TickStore
 from forex.analysis.gap_detector import GapDetector
 from forex.analysis.tick_buffer import TickBuffer
 from forex.analysis.market_structure import MarketStructureEngine
@@ -197,6 +198,8 @@ class TicksEngine:
         )
         # Hot cache: in-memory closed candles for analytical access.
         self._hot_cache = HotCache(max_size=500)
+        self._tick_store = TickStore.from_env()
+        self._local_sink = self._tick_store.write if self._tick_store else None
         # Gap detector: logs warnings on tick stream gaps.
         self._gap_detector = GapDetector(threshold_seconds=300)
         # Tick dedup + OOO buffer: prevents duplicate/out-of-order processing.
@@ -293,6 +296,7 @@ class TicksEngine:
             batch_size=self.batch_size,
             flush_interval=self.flush_seconds,
             ingest_url=self.ingest_url,
+            local_sink=self._local_sink,
         )
         self.writer.start()
         self._start_broadcaster()
@@ -342,6 +346,8 @@ class TicksEngine:
         remaining = self.buffer.flush_on_shutdown()
         if remaining and self.writer is not None:
             self.writer.flush_now(remaining)
+        if self._tick_store is not None:
+            self._tick_store.close()
         return self.exit_code
 
     # ------------------------------------------------------------------
