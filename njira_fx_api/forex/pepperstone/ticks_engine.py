@@ -117,6 +117,37 @@ def _trendbar_to_candle(
         "is_closed": True,
     }
 
+
+# cTrader server time is never more than a day from UTC, so a bigger gap is not
+# a label skew and must not be corrected.
+_MAX_REANCHOR_MS = 86_400_000
+
+
+def _reanchor_history(
+    candles: list[dict], tf: int, now_ms: int
+) -> tuple[list[dict], int]:
+    """
+    Re-label broker history onto the local UTC clock, returning (candles, shift_ms).
+
+    cTrader stamps trendbars with server time, which runs hours behind true UTC,
+    while live candles are aggregated from tick timestamps and are true UTC.
+    The newest bar is snapped to the interval containing ``now`` and the whole
+    series shifts by that amount, so both sources share one clock.
+    """
+    if not candles:
+        return candles, 0
+    step = tf * 1000
+    floor_ms = (now_ms // step) * step
+    newest_ms = int(candles[-1]["open_time"].timestamp() * 1000)
+    shift = floor_ms - newest_ms
+    if shift == 0 or shift % step or abs(shift) > _MAX_REANCHOR_MS:
+        return candles, 0
+    delta = timedelta(milliseconds=shift)
+    for candle in candles:
+        candle["open_time"] = candle["open_time"] + delta
+        candle["close_time"] = candle["close_time"] + delta
+    return candles, shift
+
 # Last fully-valid (bid, ask) seen per symbol. cTrader spot events can be
 # one-sided — only bid OR only ask changes and the other side arrives as 0.
 # We repair the missing side from this cache so the insert path never receives
@@ -198,17 +229,25 @@ def load_settings() -> dict:
     }
 
 
-# Minutes of warning before the M15 close, keyed on the 1M close_time minute
-# within the quarter hour.  A 15M bar ending :45 is previewed at :35 (T-10) and
-# :40 (T-5).  Anything else returns 0 = not a preview minute.
-_PRE_ALERT_LEAD_MIN = {5: 10, 10: 5}
+# Warning rungs keyed on the minutes left when the 1M bar closes.  A 15M bar
+# closing at :45 is scouted at :25, set up at :30, watched at :35, acted at :40.
+_PRE_ALERT_LABEL = {20: "SCOUT", 15: "SETUP", 10: "WATCH", 5: "ACT"}
 
 
 def _pre_alert_lead_min(close_time) -> int:
+    """
+    Minutes between this 1M close and the M15 close it previews; 0 = not a rung.
+
+    :55 previews the bar that opens at the next boundary, not the one already
+    forming, which is what buys a full 20 minutes of lead.
+    """
     minute = getattr(close_time, "minute", -1)
     if minute < 0:
         return 0
-    return _PRE_ALERT_LEAD_MIN.get(minute % 15, 0)
+    if minute == 55:
+        return 20
+    left = 15 - (minute % 15)
+    return left if left in _PRE_ALERT_LABEL else 0
 
 
 def _projection_map(draft, forming: dict, candles_m15: list[dict],
@@ -590,9 +629,12 @@ class TicksEngine:
             f'{r["hit_chance"] * 100:>3.0f}% reach  ({r["label"]})'
             for r in ladder
         )
+        rung = _PRE_ALERT_LABEL.get(lead_min, "PRE-ALERT")
         body = (
             f"{symbol} {draft.direction} setup is FORMING on the 15M bar that "
             f"closes at {closes_at} (about {lead_min} minutes away).\n\n"
+            f"RUNG           {rung} (T-{lead_min}m; SCOUT, SETUP, WATCH, ACT "
+            "follow in that order)\n"
             f"ENTER AT       {closes_at}, when that bar opens\n"
             f"Analyzer:      {analyzer}\n"
             f"Entry:         {draft.entry:.5f}\n"
@@ -606,13 +648,13 @@ class TicksEngine:
             "survive the close. Get a pending order ready; the confirmed card "
             "follows when that bar closes.\n"
         )
-        subject = f"njira pre-alert: {symbol} {draft.direction} (T-{lead_min}m)"
+        subject = f"njira pre-alert {rung}: {symbol} {draft.direction} (T-{lead_min}m)"
         for address in getattr(settings, "SIGNAL_EMAIL_TO", None) or []:
             try:
                 result = send_email(address, subject, body)
                 if result.get("success"):
-                    logger.info("[PREALERT] %s %s T-%dm mailed", symbol,
-                                draft.direction, lead_min)
+                    logger.info("[PREALERT] %s %s T-%dm %s mailed", symbol,
+                                draft.direction, lead_min, rung)
                 else:
                     logger.warning("[PREALERT] %s send failed: %s", symbol,
                                    result.get("message"))
@@ -1373,11 +1415,26 @@ class TicksEngine:
             )
             if candle is not None
         ]
+        candles, shift_ms = _reanchor_history(candles, tf, now_ms)
+        # The snap can leave a still-forming bar at the head, so re-apply
+        # the close guard.
+        candles = [
+            candle
+            for candle in candles
+            if candle["close_time"] <= datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc)
+        ]
         if not candles:
             logger.warning("[HISTORY] %s tf=%ds: no closed bars returned", symbol_name, tf)
             return
         self._hot_cache.set_candles(symbol_name, tf, candles)
-        logger.info("[HISTORY] %s tf=%ds: loaded %d candles", symbol_name, tf, len(candles))
+        logger.info(
+            "[HISTORY] %s tf=%ds: loaded %d candles (newest=%s shift=%+ds)",
+            symbol_name,
+            tf,
+            len(candles),
+            candles[-1]["open_time"].strftime("%Y-%m-%d %H:%M UTC"),
+            shift_ms // 1000,
+        )
 
     def _on_message(self, client: object, message: object) -> None:
         if message.payloadType == ProtoOAPayloadType.PROTO_OA_GET_TRENDBARS_RES:

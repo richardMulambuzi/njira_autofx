@@ -2277,6 +2277,9 @@ class SignalEngine:
         draft.confidence = confidence
         draft.risk_reward = round(abs(tp - entry) / risk, 2)
         draft.entry_time = self._epoch(m15[entry_index].get("open_time"))
+        if self._snr_stale(draft.entry_time, m15):
+            bump_funnel(symbol, "stale_dropped")
+            return None
         validated = bool(rej.get("validated"))
         fresh = bool(rej.get("fresh"))
         validation = rej.get("validation")
