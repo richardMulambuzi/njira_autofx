@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Njira FX Dashboard</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --line:#1e2a3a; --txt:#c9d6e4;
+    --dim:#6b7f95; --green:#3ddc84; --amber:#ffc857; --red:#ff5c5c;
+    --blue:#4aa8ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:16px;letter-spacing:.14em;text-transform:uppercase;margin:0}
+  h2{font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);margin:0 0 10px;font-weight:600}
+  header{display:flex;align-items:baseline;justify-content:space-between;
+    gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:18px}
+  .muted{color:var(--dim)}
+  .banner{border:1px solid var(--line);background:var(--panel);border-radius:8px;
+    padding:14px 16px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:22px;align-items:center}
+  .banner .big{font-size:22px;font-weight:700;letter-spacing:.04em}
+  .ok{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .info{color:var(--blue)}
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+  .panel{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:14px 16px;
+    margin-bottom:18px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.1em;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:6px 8px;border-bottom:1px solid #17202c;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  .num{text-align:right}
+  .empty{color:var(--dim);padding:10px 8px}
+  .cards{max-height:260px;overflow:auto}
+  form.login{max-width:340px;margin:12vh auto;border:1px solid var(--line);
+    background:var(--panel);border-radius:10px;padding:24px}
+  input[type=password]{width:100%;padding:10px;margin:12px 0;background:#0b0f14;
+    border:1px solid var(--line);border-radius:6px;color:var(--txt);font:inherit}
+  button{width:100%;padding:10px;background:#17324f;color:var(--txt);border:1px solid var(--blue);
+    border-radius:6px;font:inherit;cursor:pointer}
+  button:hover{background:#1d4066}
+  .err{color:var(--red);margin-top:10px}
+  .bar{height:6px;background:#0b0f14;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--green)}
+  .foot{color:var(--dim);margin-top:26px;font-size:11px;line-height:1.7}
+</style>
+</head>
+<body>
+{% if not authed %}
+  <form class="login" method="post">
+    {% csrf_token %}
+    <h1>Njira FX</h1>
+    <p class="muted" style="margin:10px 0 0">Sign in to view the dashboard.</p>
+    {% if not configured %}
+      <p class="err">No dashboard password is configured, so access is refused.
+        Set NJIRA_DASHBOARD_PASSWORD and restart the service.</p>
+    {% else %}
+      <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+      <button type="submit">Enter</button>
+      {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    {% endif %}
+  </form>
+{% else %}
+<div class="wrap">
+  <header>
+    <h1>Njira FX <span class="muted" style="font-size:11px">live machine dashboard</span></h1>
+    <span><span id="clock" class="muted">--:--:--</span>
+      &nbsp;·&nbsp;<a href="logout/">logout</a></span>
+  </header>
+
+  <div class="banner" id="banner">
+    <div>
+      <div class="muted" style="font-size:11px;letter-spacing:.14em">API</div>
+      <div class="big" id="api-state">...</div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:11px;letter-spacing:.14em">TICK FEED</div>
+      <div class="big" id="feed-state">...</div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:11px;letter-spacing:.14em">TICKS / MIN</div>
+      <div class="big" id="ticks-minute">...</div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:11px;letter-spacing:.14em">SIGNALS</div>
+      <div class="big" id="signal-count">...</div>
+    </div>
+    <div style="flex:1;min-width:200px">
+      <div class="muted" style="font-size:11px;letter-spacing:.14em">UP STREAM</div>
+      <div class="muted" id="last-update">never</div>
+      <div class="bar" id="tick-bar"><i style="width:0%"></i></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Live prices</h2>
+    <table><thead><tr>
+      <th>Symbol</th><th class="num">Bid</th><th class="num">Ask</th>
+      <th class="num">Spread</th><th class="num">Age</th>
+    </tr></thead><tbody id="prices"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Live signals</h2>
+      <table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th></tr></thead>
+      <tbody id="signals-live"><tr><td class="empty" colspan="4">Loading...</td></tr></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>Strategy performance</h2>
+      <table><thead><tr><th>Strategy</th><th class="num">Trades</th><th class="num">Win %</th><th class="num">P/L</th></tr></thead>
+      <tbody id="strategies"><tr><td class="empty" colspan="4">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Signal history</h2>
+    <table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="num">Confidence</th></tr></thead>
+    <tbody id="signals-history"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="panel cards">
+    <h2>Signal cards on disk <span class="muted" id="cards-meta"></span></h2>
+    <table><thead><tr><th>File</th><th>Modified</th><th class="num">Size</th></tr></thead>
+    <tbody id="cards"><tr><td class="empty" colspan="3">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Trading symbols</h2>
+    <table><thead><tr><th>Symbol</th><th>Name</th><th>Spread</th><th>Volatility</th><th>Best time</th></tr></thead>
+    <tbody id="assets"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Health counters</h2>
+    <table><thead><tr><th>Counter</th><th class="num">Value</th></tr></thead>
+    <tbody id="counters"><tr><td class="empty" colspan="2">Loading...</td></tr></tbody></table>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+(function () {
+  var REL = "../api/";          // works at /dashboard/ and behind a /prefix/ proxy
+  var LIVE = "live/";           // /dashboard/live/
+  var POLL_MS = 15000;
+  var timer = null;
+
+  function text(id, value, cls) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    if (cls !== undefined) el.className = "big " + cls;
+  }
+  function esc(v) {
+    return String(v === null || v === undefined ? "" : v)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function rows(tbodyId, items, cols, colspan) {
+    var body = document.getElementById(tbodyId);
+    if (!items || !items.length) {
+      body.innerHTML = '<tr><td class="empty" colspan="' + colspan + '">Nothing yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = items.map(function (item) {
+      return "<tr>" + cols.map(function (c) { return c(item); }).join("") + "</tr>";
+    }).join("");
+  }
+  function td(v, cls) { return '<td' + (cls ? ' class="' + cls + '"' : "") + ">" + esc(v) + "</td>"; }
+  function num(v, digits) {
+    return (v === null || v === undefined || isNaN(v)) ? "-" : Number(v).toFixed(digits);
+  }
+  function stamp(ms) {
+    if (!ms) return "-";
+    var d = new Date(Number(ms));
+    return d.toISOString().substr(11, 8);
+  }
+  function ago(ms) {
+    if (!ms) return "-";
+    var s = Math.max(0, Math.round((Date.now() - Number(ms)) / 1000));
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.round(s / 60) + "m";
+    return Math.round(s / 3600) + "h";
+  }
+  function get(url) {
+    return fetch(url, { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); });
+  }
+
+  function paintTicks(ticks) {
+    var enabled = ticks && ticks.enabled && !ticks.error;
+    if (!enabled) {
+      text("feed-state", ticks && ticks.error ? "ERROR" : "OFF", ticks && ticks.error ? "bad" : "warn");
+      document.getElementById("ticks-minute").textContent = "-";
+      rows("prices", [], [], 5);
+      return;
+    }
+    var stale = ticks.newest_ms ? (Date.now() - ticks.newest_ms) : Infinity;
+    text("feed-state", stale < 60000 ? "LIVE" : "STALE", stale < 60000 ? "ok" : "warn");
+    text("ticks-minute", ticks.rows_last_minute, ticks.rows_last_minute > 0 ? "ok" : "warn");
+    var pct = Math.min(100, Math.round((ticks.rows_last_minute || 0) / 10));
+    document.querySelector("#tick-bar i").style.width = pct + "%";
+
+    var keys = Object.keys(ticks.latest || {}).sort();
+    rows("prices", keys, [
+      function (k) { return td(k); },
+      function (k) { return td(num(ticks.latest[k].bid, 5), "num"); },
+      function (k) { return td(num(ticks.latest[k].ask, 5), "num"); },
+      function (k) {
+        var s = ticks.latest[k].ask - ticks.latest[k].bid;
+        return td(num(s, 5), "num");
+      },
+      function (k) { return td(ago(ticks.latest[k].ts_ms), "num"); }
+    ], 5);
+  }
+
+  function paintCards(cards) {
+    var meta = document.getElementById("cards-meta");
+    if (meta) meta.textContent = cards && cards.exists
+      ? "(" + cards.count + " in " + cards.dir + ")"
+      : "(directory " + ((cards && cards.dir) || "?") + " not found)";
+    rows("cards", (cards && cards.cards) || [], [
+      function (c) { return td(c.rel); },
+      function (c) { return td(stamp(c.modified_ms)); },
+      function (c) { return td(c.size, "num"); }
+    ], 3);
+  }
+
+  function paintSignals(payload, tbodyId, colspan, conf) {
+    var items = (payload && payload.signals) || [];
+    text("signal-count", items.length, items.length ? "ok" : "warn");
+    rows(tbodyId, items, [
+      function (s) { return td(s.time || s.created_at || s.timestamp || "-"); },
+      function (s) { return td(s.symbol || "-"); },
+      function (s) { return td(s.side || s.direction || s.action || "-"); },
+      function (s) { return td(s.strategy || s.strategy_name || "-"); }
+    ].concat(conf ? [function (s) { return td(s.confidence !== undefined ? s.confidence : "-", "num"); }] : []), colspan);
+  }
+
+  function paintStrategies(payload) {
+    var items = (payload && payload.strategies) || [];
+    rows("strategies", items, [
+      function (s) { return td(s.name || s.strategy || "-"); },
+      function (s) { return td(s.trades || s.total_trades || 0, "num"); },
+      function (s) { return td(num(s.win_rate, 1), "num"); },
+      function (s) {
+        var pl = s.profit_loss !== undefined ? s.profit_loss : (s.pnl !== undefined ? s.pnl : 0);
+        return td(num(pl, 2), "num");
+      }
+    ], 4);
+  }
+
+  function paintAssets(payload) {
+    var assets = (payload && payload.assets) || [];
+    rows("assets", assets, [
+      function (a) { return td(a.symbol); },
+      function (a) { return td(a.name || "-"); },
+      function (a) { return td(a.spread || "-"); },
+      function (a) { return td(a.volatility || "-"); },
+      function (a) { return td(a.best_time || "-"); }
+    ], 5);
+  }
+
+  function paintHealth(h) {
+    var ok = h && h.status === "healthy";
+    var bad = h && h.status && h.status !== "healthy";
+    text("api-state", ok ? "UP" : (bad ? "DEGRADED" : "?"), ok ? "ok" : "warn");
+    var counters = (h && h.metrics && h.metrics.counters) || {};
+    var items = Object.keys(counters).sort().map(function (k) {
+      return { name: k, value: counters[k] };
+    });
+    rows("counters", items, [
+      function (c) { return td(c.name); },
+      function (c) { return td(c.value, "num"); }
+    ], 2);
+    var foot = document.getElementById("foot");
+    if (foot) {
+      foot.textContent = "status=" + ((h && h.status) || "?")
+        + "  uptime=" + (h && h.uptime_seconds ? Math.round(h.uptime_seconds) + "s" : "?")
+        + "  clickhouse=" + ((h && h.clickhouse && h.clickhouse.connected) ? "connected" : "disabled")
+        + "  poll=" + (POLL_MS / 1000) + "s";
+    }
+  }
+
+  function refresh() {
+    document.getElementById("clock").textContent = new Date().toISOString().substr(11, 8);
+
+    get(REL + "health/").then(paintHealth).catch(function () { text("api-state", "DOWN", "bad"); });
+    get(REL + "signals/live/").then(function (p) { paintSignals(p, "signals-live", 4, false); })
+      .catch(function () { rows("signals-live", [], [], 4); });
+    get(REL + "signals/history/").then(function (p) { paintSignals(p, "signals-history", 5, true); })
+      .catch(function () { rows("signals-history", [], [], 5); });
+    get(REL + "strategies/performance/").then(paintStrategies)
+      .catch(function () { rows("strategies", [], [], 4); });
+    get(REL + "symbols/").then(paintAssets)
+      .catch(function () { rows("assets", [], [], 5); });
+    get(LIVE).then(function (p) { paintTicks(p.ticks); paintCards(p.cards); })
+      .catch(function () { text("feed-state", "LOCKED", "bad"); });
+    document.getElementById("last-update").textContent = new Date().toISOString().replace("T", " ").substr(0, 19);
+  }
+
+  refresh();
+  timer = setInterval(refresh, POLL_MS);
+  window.addEventListener("beforeunload", function () { clearInterval(timer); });
+})();
+</script>
+{% endif %}
+</body>
+</html>

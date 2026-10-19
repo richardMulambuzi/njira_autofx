@@ -81,6 +81,8 @@ from forex.sync.urls import urlpatterns as sync_urlpatterns
 # open health-check endpoint (AllowAny, no JWT) — backend-dev
 from forex.health import HealthCheckView
 
+from forex.dashboard_view import dashboard, dashboard_live, dashboard_logout
+
 # backtest engine (JWT-protected) — backend-dev
 from forex.backtest.views import (
     backtest_upload,
@@ -176,6 +178,10 @@ urlpatterns = [
 
     # open health-check endpoint (AllowAny, no JWT)
     path('api/health/', HealthCheckView.as_view(), name='api-health'),
+
+    path('dashboard/', dashboard, name='dashboard'),
+    path('dashboard/live/', dashboard_live, name='dashboard-live'),
+    path('dashboard/logout/', dashboard_logout, name='dashboard-logout'),
 
     # backtest engine (JWT-protected) — backend-dev
     path('api/backtest/upload/', backtest_upload, name='api-backtest-upload'),
