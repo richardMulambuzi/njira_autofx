@@ -2209,6 +2209,15 @@ class SignalEngine:
         # stale price the market no longer trades at.
         if entry_index < len(m15) - SNR_BREAKOUT_MAX_AGE:
             return None
+        _eps = [self._epoch(c.get("open_time")) or 0.0 for c in m15]
+        logger.warning(
+            "[SNRDBG] %s n=%d entry_index=%d entry_t=%s last=%s tail=%s nonmono=%d tfs=%s",
+            symbol, len(m15), entry_index, m15[entry_index].get("open_time"),
+            m15[-1].get("open_time"),
+            [str(c.get("open_time")) for c in m15[-5:]],
+            sum(1 for a, b in zip(_eps, _eps[1:]) if b < a),
+            sorted({c.get("timeframe") for c in m15}),
+        )
         # Entry: the confirmation candle closes → fill at the OPEN of the next
         # 15M bar (book: enter immediately as the bar completes, not mid-bar).
         entry = float(m15[entry_index]["open"])
