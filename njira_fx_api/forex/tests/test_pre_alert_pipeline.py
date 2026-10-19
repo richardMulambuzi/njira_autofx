@@ -1,6 +1,6 @@
-"""Tests for the pre-alert helpers: history re-anchoring, rung timing, projection."""
+"""Tests for the pre-alert helpers: rung timing and the projection map."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from django.test import SimpleTestCase
@@ -8,57 +8,7 @@ from django.test import SimpleTestCase
 from forex.pepperstone.ticks_engine import (
     _pre_alert_lead_min,
     _projection_map,
-    _reanchor_history,
 )
-
-HOUR_MS = 3_600_000
-STEP = 900 * 1000  # one M15 bar in ms
-
-BASE = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
-
-
-def candle(open_time, hours=1.0):
-    return {
-        "open_time": open_time,
-        "close_time": open_time + timedelta(seconds=900),
-        "high": 100.0 + hours,
-        "low": 100.0,
-        "close": 100.0 + hours / 2,
-    }
-
-
-class ReanchorHistoryTests(SimpleTestCase):
-    def test_shift_applied_when_broker_labels_lag(self):
-        # Newest bar stamped 6 h behind the boundary containing now.
-        now_ms = int(BASE.timestamp() * 1000)
-        stale = [candle(BASE - timedelta(hours=7)), candle(BASE - timedelta(hours=6))]
-        out, shift = _reanchor_history(stale, 900, now_ms)
-        self.assertEqual(shift, 6 * HOUR_MS)
-        self.assertEqual(out[0]["open_time"], BASE - timedelta(hours=1))
-        self.assertEqual(out[1]["open_time"], BASE)
-        self.assertEqual(out[1]["close_time"], BASE + timedelta(seconds=900))
-
-    def test_no_shift_when_already_aligned(self):
-        now_ms = int(BASE.timestamp() * 1000)
-        aligned = [candle(BASE - timedelta(seconds=900)), candle(BASE)]
-        out, shift = _reanchor_history(aligned, 900, now_ms)
-        self.assertEqual(shift, 0)
-        self.assertEqual(out[1]["open_time"], BASE)
-
-    def test_no_shift_when_offset_is_not_a_whole_bar(self):
-        now_ms = int(BASE.timestamp() * 1000) + 1234
-        odd = [candle(BASE - timedelta(seconds=900)), candle(BASE)]
-        out, shift = _reanchor_history(odd, 900, now_ms)
-        self.assertEqual(shift, 0)
-        self.assertEqual(out[1]["open_time"], BASE)
-
-    def test_no_shift_when_gap_exceeds_a_day(self):
-        # Whole-bar gap, but far too large to be a server-time label skew.
-        now_ms = int(BASE.timestamp() * 1000)
-        ancient = [candle(BASE - timedelta(days=300)), candle(BASE - timedelta(days=299))]
-        out, shift = _reanchor_history(ancient, 900, now_ms)
-        self.assertEqual(shift, 0)
-        self.assertEqual(out[1]["open_time"], BASE - timedelta(days=299))
 
 
 class PreAlertLeadTests(SimpleTestCase):

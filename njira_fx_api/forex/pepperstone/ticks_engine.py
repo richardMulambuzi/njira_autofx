@@ -118,36 +118,6 @@ def _trendbar_to_candle(
     }
 
 
-# cTrader server time is never more than a day from UTC, so a bigger gap is not
-# a label skew and must not be corrected.
-_MAX_REANCHOR_MS = 86_400_000
-
-
-def _reanchor_history(
-    candles: list[dict], tf: int, now_ms: int
-) -> tuple[list[dict], int]:
-    """
-    Re-label broker history onto the local UTC clock, returning (candles, shift_ms).
-
-    cTrader stamps trendbars with server time, which runs hours behind true UTC,
-    while live candles are aggregated from tick timestamps and are true UTC.
-    The newest bar is snapped to the interval containing ``now`` and the whole
-    series shifts by that amount, so both sources share one clock.
-    """
-    if not candles:
-        return candles, 0
-    step = tf * 1000
-    floor_ms = (now_ms // step) * step
-    newest_ms = int(candles[-1]["open_time"].timestamp() * 1000)
-    shift = floor_ms - newest_ms
-    if shift == 0 or shift % step or abs(shift) > _MAX_REANCHOR_MS:
-        return candles, 0
-    delta = timedelta(milliseconds=shift)
-    for candle in candles:
-        candle["open_time"] = candle["open_time"] + delta
-        candle["close_time"] = candle["close_time"] + delta
-    return candles, shift
-
 # Last fully-valid (bid, ask) seen per symbol. cTrader spot events can be
 # one-sided — only bid OR only ask changes and the other side arrives as 0.
 # We repair the missing side from this cache so the insert path never receives
@@ -1415,25 +1385,16 @@ class TicksEngine:
             )
             if candle is not None
         ]
-        candles, shift_ms = _reanchor_history(candles, tf, now_ms)
-        # The snap can leave a still-forming bar at the head, so re-apply
-        # the close guard.
-        candles = [
-            candle
-            for candle in candles
-            if candle["close_time"] <= datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc)
-        ]
         if not candles:
             logger.warning("[HISTORY] %s tf=%ds: no closed bars returned", symbol_name, tf)
             return
         self._hot_cache.set_candles(symbol_name, tf, candles)
         logger.info(
-            "[HISTORY] %s tf=%ds: loaded %d candles (newest=%s shift=%+ds)",
+            "[HISTORY] %s tf=%ds: loaded %d candles (newest=%s)",
             symbol_name,
             tf,
             len(candles),
             candles[-1]["open_time"].strftime("%Y-%m-%d %H:%M UTC"),
-            shift_ms // 1000,
         )
 
     def _on_message(self, client: object, message: object) -> None:
