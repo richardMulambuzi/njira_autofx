@@ -1,313 +1,533 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Njira FX Dashboard</title>
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem("njira-theme");
+    var system = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.dataset.theme = saved || system;
+  } catch (e) {}
+})();
+</script>
 <style>
-  :root{
-    --bg:#0b0f14; --panel:#111823; --line:#1e2a3a; --txt:#c9d6e4;
-    --dim:#6b7f95; --green:#3ddc84; --amber:#ffc857; --red:#ff5c5c;
-    --blue:#4aa8ff;
+  :root {
+    --txt: #eaf1fa;
+    --dim: #93a6bd;
+    --faint: rgba(255, 255, 255, .08);
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #66b3ff;
+    --glass: rgba(255, 255, 255, .065);
+    --glass-2: rgba(255, 255, 255, .045);
+    --glass-solid: #141d2b;
+    --brd: rgba(255, 255, 255, .13);
+    --hl: rgba(255, 255, 255, .24);
+    --shadow: 0 20px 54px rgba(0, 0, 0, .48);
+    --bg1: #080c13;
+    --bg2: #101a29;
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);
-    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  a{color:var(--blue);text-decoration:none}
-  a:hover{text-decoration:underline}
-  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
-  h1{font-size:16px;letter-spacing:.14em;text-transform:uppercase;margin:0}
-  h2{font-size:12px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--dim);margin:0 0 10px;font-weight:600}
-  header{display:flex;align-items:baseline;justify-content:space-between;
-    gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:18px}
-  .muted{color:var(--dim)}
-  .banner{border:1px solid var(--line);background:var(--panel);border-radius:8px;
-    padding:14px 16px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:22px;align-items:center}
-  .banner .big{font-size:22px;font-weight:700;letter-spacing:.04em}
-  .ok{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .info{color:var(--blue)}
-  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
-  .panel{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:14px 16px;
-    margin-bottom:18px}
-  table{width:100%;border-collapse:collapse}
-  th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;
-    text-transform:uppercase;letter-spacing:.1em;padding:6px 8px;border-bottom:1px solid var(--line)}
-  td{padding:6px 8px;border-bottom:1px solid #17202c;white-space:nowrap}
-  tr:last-child td{border-bottom:0}
-  .num{text-align:right}
-  .empty{color:var(--dim);padding:10px 8px}
-  .cards{max-height:260px;overflow:auto}
-  form.login{max-width:340px;margin:12vh auto;border:1px solid var(--line);
-    background:var(--panel);border-radius:10px;padding:24px}
-  input[type=password]{width:100%;padding:10px;margin:12px 0;background:#0b0f14;
-    border:1px solid var(--line);border-radius:6px;color:var(--txt);font:inherit}
-  button{width:100%;padding:10px;background:#17324f;color:var(--txt);border:1px solid var(--blue);
-    border-radius:6px;font:inherit;cursor:pointer}
-  button:hover{background:#1d4066}
-  .err{color:var(--red);margin-top:10px}
-  .bar{height:6px;background:#0b0f14;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
-  .bar i{display:block;height:100%;background:var(--green)}
-  .foot{color:var(--dim);margin-top:26px;font-size:11px;line-height:1.7}
+  :root[data-theme="light"] {
+    --txt: #101a2b;
+    --dim: #5c6d84;
+    --faint: rgba(16, 26, 43, .07);
+    --green: #0e9d63;
+    --amber: #b45309;
+    --red: #d62f2f;
+    --blue: #1f6feb;
+    --glass: rgba(255, 255, 255, .58);
+    --glass-2: rgba(255, 255, 255, .40);
+    --glass-solid: #ffffff;
+    --brd: rgba(255, 255, 255, .85);
+    --hl: rgba(255, 255, 255, .95);
+    --shadow: 0 20px 46px rgba(24, 39, 75, .16);
+    --bg1: #eff4fc;
+    --bg2: #d9e6f8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    padding: 26px 20px 56px;
+    color: var(--txt);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(1100px 640px at 10% -12%, rgba(102, 179, 255, .20), transparent 62%),
+      radial-gradient(880px 560px at 102% -4%, rgba(52, 211, 153, .16), transparent 58%),
+      radial-gradient(820px 780px at 50% 122%, rgba(167, 108, 255, .14), transparent 62%),
+      linear-gradient(180deg, var(--bg1), var(--bg2));
+    background-attachment: fixed;
+  }
+  .n {
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--brd);
+    border-radius: 18px;
+    box-shadow: var(--shadow), inset 0 1px 0 var(--hl);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass { background: var(--glass-solid); }
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .login-wrap { max-width: 380px; margin: 14vh auto 0; }
+  .login { padding: 30px 28px; display: grid; gap: 14px; }
+  .login h1 { margin: 0; font-size: 25px; letter-spacing: -.025em; font-weight: 650; }
+  .login .muted { margin: 0; }
+  .login input {
+    width: 100%; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--brd); background: var(--glass-2);
+    color: var(--txt); font: inherit; outline: none;
+  }
+  .login input:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(102, 179, 255, .18); }
+  .login button {
+    padding: 12px 14px; border-radius: 12px; border: 1px solid var(--brd);
+    background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .07));
+    color: var(--txt); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .login button:hover { border-color: var(--hl); }
+
+  header.hd {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap; padding: 16px 20px; margin-bottom: 16px;
+  }
+  header.hd h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.025em; }
+  .muted { color: var(--dim); font-weight: 400; }
+  .hd-right { display: flex; align-items: center; gap: 14px; }
+  .clockbox { display: grid; justify-items: end; line-height: 1.15; }
+  .clockbox .t { font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+  .clockbox .d { font-size: 12px; color: var(--dim); }
+  .clockbox .tz {
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dim); opacity: .85;
+  }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 11px; cursor: pointer;
+    border: 1px solid var(--brd); background: var(--glass-2);
+    color: var(--txt); font-size: 17px; line-height: 1;
+  }
+  .icon-btn:hover { border-color: var(--hl); }
+  a.logout { color: var(--dim); text-decoration: none; font-size: 13px; }
+  a.logout:hover { color: var(--txt); }
+
+  .banner {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px 22px; padding: 18px 22px 22px; margin-bottom: 16px; position: relative;
+  }
+  .cell { display: grid; gap: 5px; }
+  .cell .k {
+    font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--dim);
+  }
+  .big { font-size: 18px; font-weight: 650; letter-spacing: -.015em; }
+  .ok { color: var(--green); }
+  .warn { color: var(--amber); }
+  .bad { color: var(--red); }
+  #tick-bar { position: absolute; left: 22px; right: 22px; bottom: 12px; }
+
+  .bar { display: block; height: 4px; border-radius: 99px; background: var(--faint); overflow: hidden; }
+  .bar > i {
+    display: block; height: 100%; width: 0; border-radius: 99px;
+    background: linear-gradient(90deg, var(--blue), var(--green));
+    transition: width .3s ease;
+  }
+
+  section.panel { padding: 18px 20px 20px; margin-bottom: 16px; }
+  section.panel h2 {
+    margin: 0 0 14px; font-size: 15px; font-weight: 650; letter-spacing: -.015em;
+  }
+  section.panel h2 .muted { font-size: 12px; font-weight: 400; }
+
+  .candles { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; }
+  .candle {
+    display: grid; gap: 7px; padding: 12px 14px; border-radius: 14px;
+    background: var(--glass-2); border: 1px solid var(--faint);
+  }
+  .candle .tf { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .candle .cd { font-size: 21px; font-weight: 600; letter-spacing: -.02em; }
+  .candle .cd.soon { color: var(--amber); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .grid section.panel { margin-bottom: 0; }
+  .grid + section.panel { margin-top: 16px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--faint);
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--faint); }
+  td.n { text-align: right; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--faint); }
+  td.empty { color: var(--dim); text-align: left; font-style: italic; }
+
+  .err { margin: 0; color: var(--red); font-size: 13px; }
+  .foot { color: var(--dim); font-size: 11.5px; margin: 10px 2px 0; letter-spacing: .02em; }
 </style>
 </head>
 <body>
 {% if not authed %}
-  <form class="login" method="post">
+<main class="login-wrap">
+  <form class="glass login" method="post">
     {% csrf_token %}
     <h1>Njira FX</h1>
-    <p class="muted" style="margin:10px 0 0">Sign in to view the dashboard.</p>
+    <p class="muted">Sign in to view the dashboard.</p>
     {% if not configured %}
-      <p class="err">No dashboard password is configured, so access is refused.
-        Set NJIRA_DASHBOARD_PASSWORD and restart the service.</p>
+      <p class="err">No dashboard password is configured, so access is refused. Set NJIRA_DASHBOARD_PASSWORD and restart the service.</p>
     {% else %}
       <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
       <button type="submit">Enter</button>
       {% if error %}<p class="err">{{ error }}</p>{% endif %}
     {% endif %}
   </form>
+</main>
 {% else %}
 <div class="wrap">
-  <header>
-    <h1>Njira FX <span class="muted" style="font-size:11px">live machine dashboard</span></h1>
-    <span><span id="clock" class="muted">--:--:--</span>
-      &nbsp;·&nbsp;<a href="logout/">logout</a></span>
+  <header class="glass hd">
+    <h1>Njira FX <span class="muted">live machine dashboard</span></h1>
+    <div class="hd-right">
+      <div class="clockbox">
+        <span class="t n" id="clock">--:--:--</span>
+        <span class="d" id="date">--</span>
+        <span class="tz">CAT (UTC+2)</span>
+      </div>
+      <button type="button" class="icon-btn" id="theme" aria-label="Toggle light or dark theme">&#127769;</button>
+      <a href="logout/" class="logout">logout</a>
+    </div>
   </header>
 
-  <div class="banner" id="banner">
-    <div>
-      <div class="muted" style="font-size:11px;letter-spacing:.14em">API</div>
-      <div class="big" id="api-state">...</div>
-    </div>
-    <div>
-      <div class="muted" style="font-size:11px;letter-spacing:.14em">TICK FEED</div>
-      <div class="big" id="feed-state">...</div>
-    </div>
-    <div>
-      <div class="muted" style="font-size:11px;letter-spacing:.14em">TICKS / MIN</div>
-      <div class="big" id="ticks-minute">...</div>
-    </div>
-    <div>
-      <div class="muted" style="font-size:11px;letter-spacing:.14em">SIGNALS</div>
-      <div class="big" id="signal-count">...</div>
-    </div>
-    <div style="flex:1;min-width:200px">
-      <div class="muted" style="font-size:11px;letter-spacing:.14em">UP STREAM</div>
-      <div class="muted" id="last-update">never</div>
-      <div class="bar" id="tick-bar"><i style="width:0%"></i></div>
-    </div>
-  </div>
+  <section class="glass banner" id="banner">
+    <div class="cell"><span class="k">API</span><span class="big" id="api-state">-</span></div>
+    <div class="cell"><span class="k">Tick feed</span><span class="big" id="feed-state">-</span></div>
+    <div class="cell"><span class="k">Ticks / min</span><span class="big" id="ticks-minute">-</span></div>
+    <div class="cell"><span class="k">Signals</span><span class="big" id="signal-count">-</span></div>
+    <div class="cell"><span class="k">Up stream</span><span class="big n" id="last-update">-</span></div>
+    <div class="bar" id="tick-bar"><i></i></div>
+  </section>
 
-  <div class="panel">
+  <section class="glass panel">
+    <h2>Candle close <span class="muted">UTC-aligned boundaries, CAT clock</span></h2>
+    <div class="candles" id="candles"></div>
+  </section>
+
+  <section class="glass panel">
     <h2>Live prices</h2>
-    <table><thead><tr>
-      <th>Symbol</th><th class="num">Bid</th><th class="num">Ask</th>
-      <th class="num">Spread</th><th class="num">Age</th>
-    </tr></thead><tbody id="prices"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
-  </div>
+    <table>
+      <thead><tr><th>Symbol</th><th class="n">Bid</th><th class="n">Ask</th><th class="n">Spread</th><th class="n">Age</th></tr></thead>
+      <tbody id="prices"></tbody>
+    </table>
+  </section>
 
   <div class="grid">
-    <div class="panel">
+    <section class="glass panel">
       <h2>Live signals</h2>
-      <table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th></tr></thead>
-      <tbody id="signals-live"><tr><td class="empty" colspan="4">Loading...</td></tr></tbody></table>
-    </div>
-    <div class="panel">
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th></tr></thead>
+        <tbody id="signals-live"></tbody>
+      </table>
+    </section>
+    <section class="glass panel">
       <h2>Strategy performance</h2>
-      <table><thead><tr><th>Strategy</th><th class="num">Trades</th><th class="num">Win %</th><th class="num">P/L</th></tr></thead>
-      <tbody id="strategies"><tr><td class="empty" colspan="4">Loading...</td></tr></tbody></table>
-    </div>
+      <table>
+        <thead><tr><th>Strategy</th><th class="n">Trades</th><th class="n">Win %</th><th class="n">P/L</th></tr></thead>
+        <tbody id="strategies"></tbody>
+      </table>
+    </section>
   </div>
 
-  <div class="panel">
+  <section class="glass panel">
     <h2>Signal history</h2>
-    <table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="num">Confidence</th></tr></thead>
-    <tbody id="signals-history"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
-  </div>
+    <table>
+      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="n">Confidence</th></tr></thead>
+      <tbody id="signals-history"></tbody>
+    </table>
+  </section>
 
-  <div class="panel cards">
+  <section class="glass panel cards">
     <h2>Signal cards on disk <span class="muted" id="cards-meta"></span></h2>
-    <table><thead><tr><th>File</th><th>Modified</th><th class="num">Size</th></tr></thead>
-    <tbody id="cards"><tr><td class="empty" colspan="3">Loading...</td></tr></tbody></table>
-  </div>
+    <table>
+      <thead><tr><th>File</th><th class="n">Modified</th><th class="n">Size</th></tr></thead>
+      <tbody id="cards"></tbody>
+    </table>
+  </section>
 
-  <div class="panel">
+  <section class="glass panel">
     <h2>Trading symbols</h2>
-    <table><thead><tr><th>Symbol</th><th>Name</th><th>Spread</th><th>Volatility</th><th>Best time</th></tr></thead>
-    <tbody id="assets"><tr><td class="empty" colspan="5">Loading...</td></tr></tbody></table>
-  </div>
+    <table>
+      <thead><tr><th>Symbol</th><th>Name</th><th>Spread</th><th>Volatility</th><th>Best time</th></tr></thead>
+      <tbody id="assets"></tbody>
+    </table>
+  </section>
 
-  <div class="panel">
+  <section class="glass panel">
     <h2>Health counters</h2>
-    <table><thead><tr><th>Counter</th><th class="num">Value</th></tr></thead>
-    <tbody id="counters"><tr><td class="empty" colspan="2">Loading...</td></tr></tbody></table>
-  </div>
+    <table>
+      <thead><tr><th>Counter</th><th class="n">Value</th></tr></thead>
+      <tbody id="counters"></tbody>
+    </table>
+  </section>
 
-  <p class="foot" id="foot"></p>
+  <p class="foot n" id="foot"></p>
 </div>
 
 <script>
 (function () {
-  var REL = "../api/";          // works at /dashboard/ and behind a /prefix/ proxy
-  var LIVE = "live/";           // /dashboard/live/
+  var REL = "../api/";
+  var LIVE = "live/";
   var POLL_MS = 15000;
-  var timer = null;
+  var CAT_OFFSET_MS = 2 * 3600 * 1000;
+  var FRAMES = [["M1", 60], ["M5", 300], ["M15", 900], ["H1", 3600], ["H4", 14400], ["D1", 86400]];
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  function text(id, value, cls) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = value;
-    if (cls !== undefined) el.className = "big " + cls;
+  function p2(n) { return (n < 10 ? "0" : "") + n; }
+  function catDate(ms) { return new Date((ms === undefined ? Date.now() : ms) + CAT_OFFSET_MS); }
+  function catTime(ms) {
+    var d = catDate(ms);
+    return p2(d.getUTCHours()) + ":" + p2(d.getUTCMinutes()) + ":" + p2(d.getUTCSeconds());
+  }
+  function catFull(ms) {
+    var d = catDate(ms);
+    return d.getUTCFullYear() + "-" + p2(d.getUTCMonth() + 1) + "-" + p2(d.getUTCDate()) + " " + catTime(ms);
+  }
+  function when(v) {
+    if (!v) return "-";
+    var ms = typeof v === "number" ? v : Date.parse(v);
+    return isNaN(ms) ? String(v) : catFull(ms);
   }
   function esc(v) {
     return String(v === null || v === undefined ? "" : v)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
-  function rows(tbodyId, items, cols, colspan) {
-    var body = document.getElementById(tbodyId);
-    if (!items || !items.length) {
-      body.innerHTML = '<tr><td class="empty" colspan="' + colspan + '">Nothing yet.</td></tr>';
-      return;
-    }
-    body.innerHTML = items.map(function (item) {
-      return "<tr>" + cols.map(function (c) { return c(item); }).join("") + "</tr>";
-    }).join("");
+  function td(v, cls) {
+    return "<td" + (cls ? ' class="' + cls + '"' : "") + ">" + esc(v) + "</td>";
   }
-  function td(v, cls) { return '<td' + (cls ? ' class="' + cls + '"' : "") + ">" + esc(v) + "</td>"; }
   function num(v, digits) {
-    return (v === null || v === undefined || isNaN(v)) ? "-" : Number(v).toFixed(digits);
+    if (v === null || v === undefined || v === "") return "-";
+    var n = Number(v);
+    return isNaN(n) ? String(v) : n.toFixed(digits === undefined ? 2 : digits);
   }
-  function stamp(ms) {
-    if (!ms) return "-";
-    var d = new Date(Number(ms));
-    return d.toISOString().substr(11, 8);
+  function priceDigits(bid, ask) {
+    var sp = Math.abs(ask - bid);
+    if (sp >= 1) return 1;
+    if (sp >= 0.1) return 2;
+    if (sp >= 0.01) return 3;
+    return 5;
+  }
+  function size(b) {
+    if (b === null || b === undefined) return "-";
+    if (b < 1024) return b + " B";
+    if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1048576).toFixed(1) + " MB";
   }
   function ago(ms) {
     if (!ms) return "-";
-    var s = Math.max(0, Math.round((Date.now() - Number(ms)) / 1000));
+    var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
     if (s < 60) return s + "s";
-    if (s < 3600) return Math.round(s / 60) + "m";
-    return Math.round(s / 3600) + "h";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    return Math.floor(s / 3600) + "h";
   }
-  function get(url) {
-    return fetch(url, { headers: { "Accept": "application/json" } })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); });
+  function text(id, value, cls) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    el.className = "big " + (cls || "");
   }
-
-  function paintTicks(ticks) {
-    var enabled = ticks && ticks.enabled && !ticks.error;
-    if (!enabled) {
-      text("feed-state", ticks && ticks.error ? "ERROR" : "OFF", ticks && ticks.error ? "bad" : "warn");
-      document.getElementById("ticks-minute").textContent = "-";
-      rows("prices", [], [], 5);
+  function rows(tbodyId, items, render, cols) {
+    var body = document.getElementById(tbodyId);
+    if (!body) return;
+    if (!items || !items.length) {
+      body.innerHTML = '<tr><td class="empty" colspan="' + cols + '">Nothing yet.</td></tr>';
       return;
     }
-    var stale = ticks.newest_ms ? (Date.now() - ticks.newest_ms) : Infinity;
-    text("feed-state", stale < 60000 ? "LIVE" : "STALE", stale < 60000 ? "ok" : "warn");
-    text("ticks-minute", ticks.rows_last_minute, ticks.rows_last_minute > 0 ? "ok" : "warn");
-    var pct = Math.min(100, Math.round((ticks.rows_last_minute || 0) / 10));
-    document.querySelector("#tick-bar i").style.width = pct + "%";
+    body.innerHTML = items.map(function (item) { return "<tr>" + render(item) + "</tr>"; }).join("");
+  }
+  function get(url) {
+    return fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" }).then(function (r) {
+      if (!r.ok) throw new Error(url + " " + r.status);
+      return r.json();
+    });
+  }
+  function onErr(id, label, cls) {
+    return function () { text(id, label, cls || "bad"); };
+  }
 
-    var keys = Object.keys(ticks.latest || {}).sort();
-    rows("prices", keys, [
-      function (k) { return td(k); },
-      function (k) { return td(num(ticks.latest[k].bid, 5), "num"); },
-      function (k) { return td(num(ticks.latest[k].ask, 5), "num"); },
-      function (k) {
-        var s = ticks.latest[k].ask - ticks.latest[k].bid;
-        return td(num(s, 5), "num");
-      },
-      function (k) { return td(ago(ticks.latest[k].ts_ms), "num"); }
-    ], 5);
+  function paintClock() {
+    var d = catDate();
+    var c = document.getElementById("clock");
+    if (c) c.textContent = catTime();
+    var dt = document.getElementById("date");
+    if (dt) dt.textContent = DAYS[d.getUTCDay()] + ", " + d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+  }
+
+  var candleNodes = null;
+  function buildCandles() {
+    var host = document.getElementById("candles");
+    if (!host) return;
+    host.innerHTML = FRAMES.map(function (f) {
+      return '<div class="candle"><span class="tf">' + f[0] + '</span>'
+        + '<span class="cd n"></span><span class="bar"><i></i></span></div>';
+    }).join("");
+    candleNodes = host.querySelectorAll(".candle");
+  }
+  function paintCandles() {
+    if (!candleNodes) return;
+    var nowSec = Date.now() / 1000;
+    for (var i = 0; i < FRAMES.length && i < candleNodes.length; i++) {
+      var total = FRAMES[i][1];
+      var left = total - (nowSec % total);
+      var secs = Math.max(0, Math.ceil(left));
+      var h = Math.floor(secs / 3600);
+      var m = Math.floor((secs % 3600) / 60);
+      var s = secs % 60;
+      var el = candleNodes[i];
+      var cd = el.querySelector(".cd");
+      cd.textContent = h ? p2(h) + ":" + p2(m) + ":" + p2(s) : p2(m) + ":" + p2(s);
+      cd.className = "cd n" + (secs <= 60 ? " soon" : "");
+      el.querySelector(".bar > i").style.width = ((1 - left / total) * 100).toFixed(1) + "%";
+    }
+  }
+
+  function paintTicks(data) {
+    var ticks = (data && data.ticks) || {};
+    var minute = ticks.rows_last_minute || 0;
+    var bar = document.querySelector("#tick-bar > i");
+    if (bar) bar.style.width = Math.min(100, Math.round(minute / 10)) + "%";
+    text("ticks-minute", String(minute), minute > 0 ? "ok" : "");
+
+    if (!ticks.enabled) {
+      text("feed-state", "NO STORE", "warn");
+    } else if (ticks.error) {
+      text("feed-state", "ERROR", "bad");
+    } else {
+      var fresh = ticks.newest_ms && (Date.now() - ticks.newest_ms) < 60000;
+      text("feed-state", fresh ? "LIVE" : "STALE", fresh ? "ok" : "warn");
+    }
+
+    var latest = ticks.latest || {};
+    var syms = Object.keys(latest).sort();
+    rows("prices", syms, function (s) {
+      var t = latest[s];
+      var d = priceDigits(t.bid, t.ask);
+      return td(s) + td(num(t.bid, d), "n") + td(num(t.ask, d), "n")
+        + td(num(t.ask - t.bid, d), "n") + td(ago(t.ts_ms), "n");
+    }, 5);
   }
 
   function paintCards(cards) {
     var meta = document.getElementById("cards-meta");
-    if (meta) meta.textContent = cards && cards.exists
-      ? "(" + cards.count + " in " + cards.dir + ")"
-      : "(directory " + ((cards && cards.dir) || "?") + " not found)";
-    rows("cards", (cards && cards.cards) || [], [
-      function (c) { return td(c.rel); },
-      function (c) { return td(stamp(c.modified_ms)); },
-      function (c) { return td(c.size, "num"); }
-    ], 3);
+    if (meta) {
+      meta.textContent = cards && cards.exists
+        ? "(" + cards.count + " in " + cards.dir + ")"
+        : "(no signal directory)";
+    }
+    rows("cards", (cards && cards.cards) || [], function (c) {
+      return td(c.rel || c.name) + td(catFull(c.modified_ms), "n") + td(size(c.size), "n");
+    }, 3);
   }
 
-  function paintSignals(payload, tbodyId, colspan, conf) {
-    var items = (payload && payload.signals) || [];
-    text("signal-count", items.length, items.length ? "ok" : "warn");
-    rows(tbodyId, items, [
-      function (s) { return td(s.time || s.created_at || s.timestamp || "-"); },
-      function (s) { return td(s.symbol || "-"); },
-      function (s) { return td(s.side || s.direction || s.action || "-"); },
-      function (s) { return td(s.strategy || s.strategy_name || "-"); }
-    ].concat(conf ? [function (s) { return td(s.confidence !== undefined ? s.confidence : "-", "num"); }] : []), colspan);
+  function sigTime(s) { return s.time || s.created_at || s.timestamp || ""; }
+  function sigSide(s) { return s.side || s.direction || s.action || "-"; }
+  function sigName(s) { return s.strategy || s.strategy_name || "-"; }
+
+  function paintSignals(live) {
+    var items = (live && live.signals) || [];
+    text("signal-count", String(items.length), items.length > 0 ? "ok" : "");
+    rows("signals-live", items, function (s) {
+      return td(when(sigTime(s)), "n") + td(s.symbol || "-") + td(sigSide(s)) + td(sigName(s));
+    }, 4);
   }
 
-  function paintStrategies(payload) {
-    var items = (payload && payload.strategies) || [];
-    rows("strategies", items, [
-      function (s) { return td(s.name || s.strategy || "-"); },
-      function (s) { return td(s.trades || s.total_trades || 0, "num"); },
-      function (s) { return td(num(s.win_rate, 1), "num"); },
-      function (s) {
-        var pl = s.profit_loss !== undefined ? s.profit_loss : (s.pnl !== undefined ? s.pnl : 0);
-        return td(num(pl, 2), "num");
-      }
-    ], 4);
+  function paintHistory(data) {
+    rows("signals-history", (data && data.signals) || [], function (s) {
+      return td(when(sigTime(s)), "n") + td(s.symbol || "-") + td(sigSide(s))
+        + td(sigName(s)) + td(num(s.confidence, 2), "n");
+    }, 5);
   }
 
-  function paintAssets(payload) {
-    var assets = (payload && payload.assets) || [];
-    rows("assets", assets, [
-      function (a) { return td(a.symbol); },
-      function (a) { return td(a.name || "-"); },
-      function (a) { return td(a.spread || "-"); },
-      function (a) { return td(a.volatility || "-"); },
-      function (a) { return td(a.best_time || "-"); }
-    ], 5);
+  function paintStrategies(data) {
+    rows("strategies", (data && data.strategies) || [], function (s) {
+      var trades = s.trades === undefined ? s.total_trades : s.trades;
+      var pnl = s.profit_loss === undefined ? s.pnl : s.profit_loss;
+      var pct = s.win_rate === undefined || s.win_rate === null ? "-" : num(s.win_rate, 1) + "%";
+      return td(s.name || s.strategy || "-") + td(num(trades, 0), "n") + td(pct, "n") + td(num(pnl, 2), "n");
+    }, 4);
+  }
+
+  function paintAssets(data) {
+    rows("assets", (data && data.assets) || [], function (a) {
+      return td(a.symbol || "-") + td(a.name || "-") + td(a.spread || "-")
+        + td(a.volatility || "-") + td(a.best_time || "-");
+    }, 5);
   }
 
   function paintHealth(h) {
     var ok = h && h.status === "healthy";
-    var bad = h && h.status && h.status !== "healthy";
-    text("api-state", ok ? "UP" : (bad ? "DEGRADED" : "?"), ok ? "ok" : "warn");
-    var counters = (h && h.metrics && h.metrics.counters) || {};
-    var items = Object.keys(counters).sort().map(function (k) {
-      return { name: k, value: counters[k] };
-    });
-    rows("counters", items, [
-      function (c) { return td(c.name); },
-      function (c) { return td(c.value, "num"); }
-    ], 2);
+    text("api-state", ok ? "UP" : "DEGRADED", ok ? "ok" : "warn");
+
+    var ch = h && h.clickhouse;
+    var chText = !ch ? "?" : (ch.enabled ? (ch.connected ? "connected" : "DOWN") : "disabled");
     var foot = document.getElementById("foot");
     if (foot) {
       foot.textContent = "status=" + ((h && h.status) || "?")
-        + "  uptime=" + (h && h.uptime_seconds ? Math.round(h.uptime_seconds) + "s" : "?")
-        + "  clickhouse=" + (!h || !h.clickhouse ? "?" : (h.clickhouse.enabled ? (h.clickhouse.connected ? "connected" : "DOWN") : "disabled"))
-        + "  poll=" + (POLL_MS / 1000) + "s";
+        + "  uptime=" + Math.round((h && h.uptime_seconds) || 0) + "s"
+        + "  clickhouse=" + chText
+        + "  poll=15s";
     }
+
+    var counters = (h && h.metrics && h.metrics.counters) || {};
+    var keys = Object.keys(counters).sort();
+    rows("counters", keys, function (k) { return td(k) + td(counters[k], "n"); }, 2);
   }
 
   function refresh() {
-    document.getElementById("clock").textContent = new Date().toISOString().substr(11, 8);
+    var up = document.getElementById("last-update");
+    if (up) up.textContent = catFull();
 
-    get(REL + "health/").then(paintHealth).catch(function () { text("api-state", "DOWN", "bad"); });
-    get(REL + "signals/live/").then(function (p) { paintSignals(p, "signals-live", 4, false); })
-      .catch(function () { rows("signals-live", [], [], 4); });
-    get(REL + "signals/history/").then(function (p) { paintSignals(p, "signals-history", 5, true); })
-      .catch(function () { rows("signals-history", [], [], 5); });
-    get(REL + "strategies/performance/").then(paintStrategies)
-      .catch(function () { rows("strategies", [], [], 4); });
-    get(REL + "symbols/").then(paintAssets)
-      .catch(function () { rows("assets", [], [], 5); });
-    get(LIVE).then(function (p) { paintTicks(p.ticks); paintCards(p.cards); })
-      .catch(function () { text("feed-state", "LOCKED", "bad"); });
-    document.getElementById("last-update").textContent = new Date().toISOString().replace("T", " ").substr(0, 19);
+    get(LIVE).then(function (d) {
+      paintTicks(d);
+      paintCards(d.cards);
+    }).catch(onErr("feed-state", "ERROR"));
+
+    get(REL + "health/").then(paintHealth).catch(onErr("api-state", "DOWN"));
+    get(REL + "signals/live/").then(paintSignals).catch(function () { paintSignals(null); });
+    get(REL + "signals/history/").then(paintHistory).catch(function () { paintHistory(null); });
+    get(REL + "strategies/performance/").then(paintStrategies).catch(function () { paintStrategies(null); });
+    get(REL + "symbols/").then(paintAssets).catch(function () { paintAssets(null); });
   }
 
+  var themeBtn = document.getElementById("theme");
+  function paintThemeBtn() {
+    if (themeBtn) themeBtn.textContent = document.documentElement.dataset.theme === "light" ? "\u2600\uFE0F" : "\uD83C\uDF19";
+  }
+  if (themeBtn) {
+    paintThemeBtn();
+    themeBtn.addEventListener("click", function () {
+      var next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem("njira-theme", next); } catch (e) {}
+      paintThemeBtn();
+    });
+  }
+
+  paintClock();
+  setInterval(paintClock, 1000);
+  buildCandles();
+  paintCandles();
+  setInterval(paintCandles, 250);
   refresh();
-  timer = setInterval(refresh, POLL_MS);
-  window.addEventListener("beforeunload", function () { clearInterval(timer); });
+  setInterval(refresh, POLL_MS);
 })();
 </script>
 {% endif %}
