@@ -1,9 +1,9 @@
 [Unit]
-Description=Run the njira signal mailer every 5 minutes
+Description=Run the njira signal mailer every minute
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1min
 Persistent=true
 
 [Install]

@@ -353,6 +353,37 @@ class SignalDraft:
     entry_time: Optional[float] = None
 
 
+class _FormingCacheView:
+    """HotCache view that appends ONE still-open candle to its timeframe.
+
+    The engine only ever reads candles through ``cache.get(symbol, tf)``, so
+    merging the forming bar here lets the pre-alert run the real detectors
+    against a candle that has not closed yet, with no per-detector changes.
+
+    Single-threaded by design: the ticks engine swaps this in around one
+    synchronous preview call and swaps it straight back out.
+    """
+
+    def __init__(self, inner, symbol: str, tf: int, forming: dict) -> None:
+        self._inner = inner
+        self._key = (symbol, tf)
+        self._forming = forming
+        self._open_time = forming.get("open_time")
+
+    def get(self, symbol: str, tf: int, n: int = 0) -> list[dict]:
+        base = self._inner.get(symbol, tf, n)
+        if (symbol, tf) != self._key:
+            return base
+        # The closed cache may already hold a bar for this interval when the
+        # forming candle straddles a boundary; drop it so the open bar wins.
+        merged = [c for c in base if c.get("open_time") != self._open_time]
+        merged.append(self._forming)
+        return merged[-n:] if n > 0 else merged
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 class SignalEngine:
     """
     Multi-factor confluence signal engine.
@@ -423,6 +454,29 @@ class SignalEngine:
         self._rr_service = RRService()
         self._recent_signals: list[dict] = []
         self._last_strategy_reports: dict[str, list[StrategyReport]] = {}
+
+    def preview_malaysian(self, symbol: str, forming: dict) -> list[SignalDraft]:
+        """Drafts the gates would test if the still-open ``forming`` bar closed now.
+
+        This is the pre-alert surface: it runs the analysis and the entry
+        gates only.  No polish, no confluence gate, no card, no lifecycle
+        write, so it cannot disturb the confirmed signal feed.  The caller
+        owns the decision to warn on a draft.
+
+        ``forming`` is an open candle from CandleAggregator.get_forming(tf).
+        """
+        tf = int(forming.get("timeframe") or M15_TF_SECONDS)
+        original = self._cache
+        self._cache = _FormingCacheView(original, symbol, tf, forming)
+        try:
+            return self._best_malaysian_draft(symbol)
+        finally:
+            self._cache = original
+
+    def has_active_setup(self, symbol: str, direction: str, analyzer: str) -> bool:
+        """True when this analyzer already holds a live setup for the pair."""
+        return self._lifecycle.find_active_setup(
+            symbol, direction, f"malysian:{analyzer}") is not None
 
     def evaluate(
         self,
@@ -3678,16 +3732,37 @@ class SignalEngine:
                             symbol, draft.direction, _score, _need)
                 return None
             bump_funnel(symbol, "confluence_passed")
-            try:
-                _log_path = _log_signal(
-                    symbol, draft, _qrep, _score, _breakdown, _need,
-                    _sess, _htf, uuid.uuid4().hex,
-                )
-                draft.evidence["signal_log"] = str(_log_path)
-            except Exception as exc:  # noqa: BLE001 — logging never blocks emits
-                logger.warning("[SNR] signal log write failed for %s: %s", symbol, exc)
+
+            # The card is written only once the dedup verdict below says this is a
+            # genuinely new or changed setup.  Writing it here meant every M15
+            # close on a standing setup produced a fresh card, so the mailer
+            # shipped the same signal repeatedly (observed: US500 SELL mailed at
+            # 17:48 and 18:03 UTC, identical entry/SL/TP).
+            def _write_card() -> None:
+                try:
+                    # One card carries every take-profit rung, so the same setup
+                    # is never mailed once per target.  The ladder is pure
+                    # geometry off the stop (TP1 = 1R ... TP7 = 5R).
+                    from forex.analysis.tp_ladder import build_tp_ladder
+
+                    draft.evidence["tp_ladder"] = build_tp_ladder(
+                        draft.direction, draft.entry, draft.stop_loss,
+                    )
+                    if draft.entry_time is not None:
+                        # Book rule: a setup older than SNR_STALE_BARS 15M bars
+                        # is stale, so that is when the entry stops being valid.
+                        draft.evidence["expiry_time"] = (
+                            float(draft.entry_time) + SNR_STALE_BARS * M15_TF_SECONDS
+                        )
+                    draft.evidence["signal_log"] = str(_log_signal(
+                        symbol, draft, _qrep, _score, _breakdown, _need,
+                        _sess, _htf, uuid.uuid4().hex,
+                    ))
+                except Exception as exc:  # noqa: BLE001: logging never blocks emits
+                    logger.warning("[SNR] signal log write failed for %s: %s", symbol, exc)
         except ImportError as exc:  # noqa: BLE001 — gate modules missing
             logger.warning("[SNR] confluence gate unavailable for %s: %s", symbol, exc)
+            _write_card = None
 
         contra_report = result.contradiction_report
 
@@ -3717,6 +3792,8 @@ class SignalEngine:
             if unchanged:
                 return existing
             bump_funnel(symbol, "dedup_merged")
+            if _write_card:
+                _write_card()
             existing.confidence_evidence.update(draft.evidence)
             existing.confidence_score = draft.confidence
             existing.explanation = self._build_explanation(draft)
@@ -3739,6 +3816,8 @@ class SignalEngine:
             ]
 
         explanation = self._build_explanation(draft)
+        if _write_card:
+            _write_card()
         signal = self._lifecycle.create(
             symbol=symbol,
             direction=draft.direction,

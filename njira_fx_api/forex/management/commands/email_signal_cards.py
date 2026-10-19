@@ -95,10 +95,17 @@ class Command(BaseCommand):
         for card in pending:
             with open(card) as handle:
                 body = handle.read()
+            # The card's companion .html is what the client renders; body and
+            # attachment stay as the plain-text fallback and the record.
+            html_file = os.path.splitext(str(card))[0] + ".html"
+            html = None
+            if os.path.exists(html_file):
+                with open(html_file) as handle:
+                    html = handle.read()
             subject = "njira signal: " + os.path.basename(card)[:-3]
             ok = True
             for address in recipients:
-                result = send_email(address, subject, body, attachment=card)
+                result = send_email(address, subject, body, attachment=card, html=html)
                 if not result.get("success"):
                     ok = False
                     self.stderr.write("FAILED %s for %s: %s" % (card, address, result.get("message")))

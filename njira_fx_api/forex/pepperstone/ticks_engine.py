@@ -198,6 +198,70 @@ def load_settings() -> dict:
     }
 
 
+# Minutes of warning before the M15 close, keyed on the 1M close_time minute
+# within the quarter hour.  A 15M bar ending :45 is previewed at :35 (T-10) and
+# :40 (T-5).  Anything else returns 0 = not a preview minute.
+_PRE_ALERT_LEAD_MIN = {5: 10, 10: 5}
+
+
+def _pre_alert_lead_min(close_time) -> int:
+    minute = getattr(close_time, "minute", -1)
+    if minute < 0:
+        return 0
+    return _PRE_ALERT_LEAD_MIN.get(minute % 15, 0)
+
+
+def _projection_map(draft, forming: dict, candles_m15: list[dict],
+                    horizons=(10, 15, 20)) -> list[str]:
+    """Where this setup stands at +10/+15/+20 minutes.
+
+    Built from the setup's own geometry and the symbol's typical travel, never
+    from a price forecast.  There is no directional prediction here: it answers
+    how long the entry needs to be reached, whether each horizon is long enough
+    to get there, and which price kills the setup.
+    """
+    closes = [c["close"] for c in (candles_m15 or []) if c.get("close")]
+    price = forming.get("close")
+    if price is None and closes:
+        price = closes[-1]
+    if price is None or not closes:
+        return ["Projection unavailable: no recent 15M candles."]
+
+    ranges = [
+        float(c["high"]) - float(c["low"]) for c in candles_m15
+        if c.get("high") is not None and c.get("low") is not None
+    ]
+    speed = (sum(ranges) / len(ranges) / 15.0) if ranges else 0.0
+    if speed <= 0:
+        return ["Projection unavailable: no recent 15M range."]
+
+    price = float(price)
+    distance = abs(float(draft.entry) - price)
+    fill_eta = distance / speed
+    target_eta = abs(float(draft.take_profit) - float(draft.entry)) / speed
+
+    lines = [
+        f"Typical travel: {speed:.4f} per minute "
+        f"({speed * 15:.4f} per 15M bar, mean of {len(ranges)} bars)",
+        f"Price now:      {price:.5f}",
+        f"Fill needs:     {distance:.5f} of movement, about {fill_eta:.0f} min at this pace",
+        f"Target needs:   about {target_eta:.0f} min after the fill",
+        f"Invalidation:   {float(draft.stop_loss):.5f} (this price kills the setup)",
+    ]
+    for h in horizons:
+        if distance == 0:
+            lines.append(f"+{h}m   price is already at the entry")
+            continue
+        reach = (speed * h) / distance
+        if reach >= 1:
+            lines.append(f"+{h}m   entry reachable (about {fill_eta:.0f} min needed)")
+        else:
+            lines.append(
+                f"+{h}m   entry still short (covers {reach * 100:.0f}% of the distance)"
+            )
+    return lines
+
+
 class TicksEngine:
     """
     Long-running tick streamer: reactor in the calling thread, ClickHouse /
@@ -274,6 +338,8 @@ class TicksEngine:
         self._fvg_persist_ts: dict[str, float] = {}
         # Signal engine: orchestrates all intelligence on candle close.
         self._signal_engine: SignalEngine | None = None
+        # Pre-alerts already sent: dedupe key -> send time (epoch seconds).
+        self._pre_alerts: dict[str, float] = {}
         # Retest engine (improve.md §34–§35): evaluates price reaction to zones.
         self._retest_engine: RetestEngine | None = None
         # Shared market context engine (improve.md §17) — one snapshot all
@@ -455,6 +521,105 @@ class TicksEngine:
                 )
 
     # ------------------------------------------------------------------
+    # Pre-alert (advisory email ahead of the M15 close)
+    # ------------------------------------------------------------------
+    def _maybe_pre_alert(self, symbol: str, candle: dict) -> None:
+        """Warn ahead of the M15 close when a Malaysian setup is shaping up.
+
+        Driven by 1M closes 10 and 5 minutes before the 15M bar ends (a 1M bar
+        closing at minute 5 or 10 past a quarter hour).  The setup is judged on
+        the still-open 15M candle, so the alert lands before it confirms and
+        there is time to stage a pending order.
+
+        Best-effort: an alert failure must never break tick handling.
+        """
+        close_time = candle.get("close_time")
+        lead_min = _pre_alert_lead_min(close_time)
+        if not lead_min or symbol not in self._user_symbols:
+            return
+        if self._signal_engine is None:
+            return
+        try:
+            registry = self._candle_registry.get_aggregator(symbol)
+            forming = registry.get_forming(900) if registry is not None else None
+            if forming is None:
+                return
+            drafts = self._signal_engine.preview_malaysian(symbol, forming)
+        except Exception as exc:  # noqa: BLE001: advisory only
+            logger.debug("Pre-alert preview failed for %s: %s", symbol, exc)
+            return
+        if not drafts:
+            return
+
+        # Recent closed 15M bars: the basis for the typical-travel pace the
+        # projection map is built from.
+        candles = self._hot_cache.get_candles(symbol, 900, limit=20)
+
+        now = time.time()
+        self._pre_alerts = {
+            key: ts for key, ts in self._pre_alerts.items() if ts > now - 6 * 3600
+        }
+        for draft in drafts:
+            analyzer = str((draft.evidence or {}).get("analyzer", "snr"))
+            if self._signal_engine.has_active_setup(symbol, draft.direction, analyzer):
+                continue  # already live, nothing left to prepare
+            key = "|".join((
+                symbol, draft.direction, analyzer,
+                str(forming.get("open_time")), str(lead_min),
+            ))
+            if key in self._pre_alerts:
+                continue
+            self._pre_alerts[key] = now
+            self._send_pre_alert(symbol, draft, analyzer, lead_min, forming, candles)
+
+    def _send_pre_alert(self, symbol: str, draft, analyzer: str,
+                        lead_min: int, forming: dict, candles: list[dict]) -> None:
+        from django.conf import settings
+        from notifications.views import send_email
+
+        fmt = getattr(forming.get("close_time"), "strftime", None)
+        closes_at = fmt("%H:%M UTC") if fmt else "the 15M close"
+        projection = "\n".join(_projection_map(draft, forming, candles))
+        try:
+            from forex.analysis.tp_ladder import build_tp_ladder, ladder_summary
+            ladder = build_tp_ladder(draft.direction, draft.entry, draft.stop_loss)
+        except Exception:  # noqa: BLE001: advisory mail, never fatal
+            ladder, ladder_summary = [], lambda _l: ""
+        ladder_lines = "\n".join(
+            f'  {r["name"]:<4} {r["price"]:<12} {r["r_multiple"]:>4.1f}R  '
+            f'{r["hit_chance"] * 100:>3.0f}% reach  ({r["label"]})'
+            for r in ladder
+        )
+        body = (
+            f"{symbol} {draft.direction} setup is FORMING on the 15M bar that "
+            f"closes at {closes_at} (about {lead_min} minutes away).\n\n"
+            f"ENTER AT       {closes_at}, when that bar opens\n"
+            f"Analyzer:      {analyzer}\n"
+            f"Entry:         {draft.entry:.5f}\n"
+            f"Stop loss:     {draft.stop_loss:.5f}\n"
+            f"Risk:Reward:   {draft.risk_reward:.2f}\n"
+            f"Confidence:    {draft.confidence:.0f}\n\n"
+            f"TAKE PROFIT LADDER\n{ladder_lines}\n"
+            f"{ladder_summary(ladder)}\n\n"
+            f"PROJECTION (next 20 minutes)\n{projection}\n\n"
+            "This is a pre-alert, not a confirmed signal: the setup still has to "
+            "survive the close. Get a pending order ready; the confirmed card "
+            "follows when that bar closes.\n"
+        )
+        subject = f"njira pre-alert: {symbol} {draft.direction} (T-{lead_min}m)"
+        for address in getattr(settings, "SIGNAL_EMAIL_TO", None) or []:
+            try:
+                result = send_email(address, subject, body)
+                if result.get("success"):
+                    logger.info("[PREALERT] %s %s T-%dm mailed", symbol,
+                                draft.direction, lead_min)
+                else:
+                    logger.warning("[PREALERT] %s send failed: %s", symbol,
+                                   result.get("message"))
+            except Exception as exc:  # noqa: BLE001: advisory only
+                logger.warning("[PREALERT] %s send raised: %s", symbol, exc)
+
+    # ------------------------------------------------------------------
     # Candle close callback (Phase 2-4: persist + cache + signal eval)
     # ------------------------------------------------------------------
     def _on_candle_close(self, candle: dict) -> None:
@@ -587,6 +752,12 @@ class TicksEngine:
             self._context_engine.update(symbol, candle)
         except Exception as exc:  # noqa: BLE001 — non-fatal
             logger.debug("Market context update failed for %s: %s", symbol, exc)
+
+        # Early warning: judge the still-open 15M bar 10 and 5 minutes before it
+        # closes, so a pending order can be staged instead of chased. Advisory
+        # only. The confirmed card still comes from the close below.
+        if tf == 60:
+            self._maybe_pre_alert(symbol, candle)
 
         # Evaluate signals for this symbol (only if user has it selected).
         if symbol not in self._user_symbols:

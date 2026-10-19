@@ -13,14 +13,22 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 # Send an actual email
-def send_email(address, subject, message, attachment=None):
+def send_email(address, subject, message, attachment=None, html=None):
+    """Send one email. ``message`` is the plain-text body; ``html`` is an
+    optional rich alternative the client renders instead when it can.
+
+    A client that cannot show HTML still gets the plain text, so the layout
+    work can never make a signal unreadable."""
     try:
         print("sending email to ", address)
-        if attachment is None:
+        if attachment is None and html is None:
             send_mail(subject, message, settings.EMAIL_HOST_USER, [address])
         else:
             email = EmailMessage(subject, message, settings.EMAIL_HOST_USER, [address])
-            email.attach_file(attachment)
+            if html is not None:
+                email.attach_alternative(html, "text/html")
+            if attachment is not None:
+                email.attach_file(attachment)
             email.send(fail_silently=False)
         save_notification(address, subject, message)
         return {"success": True, "message": "Email sent successfully"}
