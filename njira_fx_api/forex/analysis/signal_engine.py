@@ -2032,7 +2032,10 @@ class SignalEngine:
             draft.confidence = confidence
             draft.risk_reward = round(abs(tp - entry) / risk, 2)
             draft.entry_time = float(entry_time) if entry_time is not None else None
-            if self._snr_stale(draft.entry_time, self._cache.get(symbol, M15_TF_SECONDS)):
+            now = self._epoch(h4[-1].get("close_time") or c.get("close_time"))
+            if draft.entry_time is not None and now is not None and (
+                now >= draft.entry_time + H4_TF_SECONDS
+            ):
                 bump_funnel(symbol, "stale_dropped")
                 continue
             draft.evidence = {
@@ -3757,10 +3760,10 @@ class SignalEngine:
                         draft.direction, draft.entry, draft.stop_loss,
                     )
                     if draft.entry_time is not None:
-                        # Book rule: a setup older than SNR_STALE_BARS 15M bars
-                        # is stale, so that is when the entry stops being valid.
-                        draft.evidence["expiry_time"] = (
-                            float(draft.entry_time) + SNR_STALE_BARS * M15_TF_SECONDS
+                        draft.evidence["expiry_time"] = float(draft.entry_time) + (
+                            H4_TF_SECONDS
+                            if (draft.evidence or {}).get("entry_kind") == "book_step12"
+                            else SNR_STALE_BARS * M15_TF_SECONDS
                         )
                     draft.evidence["signal_log"] = str(_log_signal(
                         symbol, draft, _qrep, _score, _breakdown, _need,
