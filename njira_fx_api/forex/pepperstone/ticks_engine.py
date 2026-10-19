@@ -30,13 +30,17 @@ import queue
 import signal
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
 
 from ctrader_open_api.protobuf import Protobuf
-from ctrader_open_api.messages.OpenApiModelMessages_pb2 import ProtoOAPayloadType
+from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOAGetTrendbarsReq
+from ctrader_open_api.messages.OpenApiModelMessages_pb2 import (
+    ProtoOAPayloadType,
+    ProtoOATrendbarPeriod,
+)
 
 from forex.pepperstone.client import (
     PepperstoneSession,
@@ -44,6 +48,8 @@ from forex.pepperstone.client import (
     get_credentials,
     price_scale,
 )
+from forex.pepperstone.h4_window import backfill_start_ms
+from forex.pepperstone.window_session import decode_trendbars
 from forex.analysis.candle_engine import CandleRegistry
 from forex.analysis.cache import HotCache
 from forex.analysis.tick_store import TickStore
@@ -71,6 +77,41 @@ from forex.analysis.volume_profile import VolumeProfileEngine
 logger = logging.getLogger("forex.pepperstone.ticks_engine")
 
 MAX_RECONNECT_ATTEMPTS = 5
+
+HISTORY_PERIODS: dict[int, int] = {
+    ProtoOATrendbarPeriod.M15: 900,
+    ProtoOATrendbarPeriod.H1: 3600,
+    ProtoOATrendbarPeriod.H4: 14400,
+}
+HISTORY_COUNT = 1000
+
+
+def _trendbar_to_candle(
+    symbol: str, tf: int, bar: dict, now_ms: int
+) -> Optional[dict]:
+    """
+    Convert one decoded cTrader trendbar into the CandleRegistry candle shape.
+
+    Returns ``None`` for the still-forming bar: history responses include the
+    open bar, and presenting it as closed would let the analyzer read a
+    partial 4H rejection as if it were settled.
+    """
+    open_ms = int(bar["epoch"])
+    if open_ms + tf * 1000 > now_ms:
+        return None
+    open_time = datetime.fromtimestamp(open_ms / 1000, tz=timezone.utc)
+    return {
+        "symbol": symbol,
+        "timeframe": tf,
+        "open": float(bar["open"]),
+        "high": float(bar["high"]),
+        "low": float(bar["low"]),
+        "close": float(bar["close"]),
+        "volume_ticks": int(bar.get("volume") or 0),
+        "open_time": open_time,
+        "close_time": open_time + timedelta(seconds=tf),
+        "is_closed": True,
+    }
 
 # Last fully-valid (bid, ask) seen per symbol. cTrader spot events can be
 # one-sided — only bid OR only ask changes and the other side arrives as 0.
@@ -1060,6 +1101,7 @@ class TicksEngine:
             return
         self.session.subscribe_spots(symbol_ids)
         self._subscribed_ids = set(symbol_ids)
+        self._request_history(symbol_ids)
         if self._disconnects > 0:
             METRICS.increment("reconnect_count")
         self._disconnects = 0  # a fresh handshake means the link is healthy
@@ -1088,7 +1130,64 @@ class TicksEngine:
         self._subscribe_new_symbols(self._user_symbols)
         self._broadcast_symbol_list()
 
+    def _request_history(self, symbol_ids: list[int]) -> None:
+        """
+        Ask the broker for real trendbars on the open session.
+
+        The engine holds one authenticated connection, so history costs no
+        extra handshake and no extra process. The window is clamped to
+        ``HISTORY_COUNT`` bars per timeframe, wider windows would silently
+        return the oldest slice of the range rather than the newest.
+        """
+        now_ms = int(time.time() * 1000)
+        floor_ms = backfill_start_ms(now_ms)
+        for symbol_id in symbol_ids:
+            for period, tf in HISTORY_PERIODS.items():
+                span_ms = HISTORY_COUNT * tf * 1000
+                self.session.client.send(
+                    ProtoOAGetTrendbarsReq(
+                        ctidTraderAccountId=self.credentials["account_id"],
+                        symbolId=symbol_id,
+                        fromTimestamp=max(floor_ms, now_ms - span_ms),
+                        toTimestamp=now_ms,
+                        period=period,
+                        count=HISTORY_COUNT,
+                    )
+                )
+
+    def _load_history(self, message: object) -> None:
+        """Replace the hot cache entry for one timeframe with broker history."""
+        try:
+            response = Protobuf.extract(message)
+        except Exception as exc:  # noqa: BLE001 - one bad frame must not kill us
+            logger.warning("Could not parse trendbar response: %s", exc)
+            return
+        tf = HISTORY_PERIODS.get(response.period)
+        if tf is None:
+            return
+        info = self.session.symbols_by_id.get(int(response.symbolId))
+        if info is None:
+            return
+        symbol_name, digits = info
+        now_ms = int(time.time() * 1000)
+        bars = decode_trendbars(response.trendbar, symbol_name, int(digits))
+        candles = [
+            candle
+            for candle in (
+                _trendbar_to_candle(symbol_name, tf, bar, now_ms) for bar in bars
+            )
+            if candle is not None
+        ]
+        if not candles:
+            logger.warning("[HISTORY] %s tf=%ds: no closed bars returned", symbol_name, tf)
+            return
+        self._hot_cache.set_candles(symbol_name, tf, candles)
+        logger.info("[HISTORY] %s tf=%ds: loaded %d candles", symbol_name, tf, len(candles))
+
     def _on_message(self, client: object, message: object) -> None:
+        if message.payloadType == ProtoOAPayloadType.PROTO_OA_GET_TRENDBARS_RES:
+            self._load_history(message)
+            return
         if message.payloadType != ProtoOAPayloadType.PROTO_OA_SPOT_EVENT:
             return
         try:
