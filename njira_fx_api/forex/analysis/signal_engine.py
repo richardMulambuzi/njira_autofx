@@ -240,10 +240,10 @@ H4_TF_SECONDS = 14400
 H1_TF_SECONDS = 3600
 D1_TF_SECONDS = 86400
 # An entry more than this many 15M bars behind the last closed 15M candle is a
-# played-out setup, not a live trade — the same ~4h window the SNR rejection
-# guard already allows. Without it a gap/marriage setup re-fires on every
-# subsequent 15M close for the rest of the run.
-SNR_STALE_BARS = 16
+# played-out setup, not a live trade. This is also the card's validity window,
+# so a wide value lets an hours-old setup be emitted already expired (US500
+# entry 17:00, valid-until 21:00, written 21:59).
+SNR_STALE_BARS = 2
 # Home sessions per symbol (looked up case-insensitively).  AUDJPY is an Asia
 # instrument, so it trades in tokyo + sydney; every other symbol defaults to
 # SESSION_ALLOWED_DEFAULT, the london/newyork overlap (12:00-16:00 UTC) — the
