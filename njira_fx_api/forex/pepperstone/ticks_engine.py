@@ -200,6 +200,9 @@ class TicksEngine:
         self._hot_cache = HotCache(max_size=500)
         self._tick_store = TickStore.from_env()
         self._local_sink = self._tick_store.write if self._tick_store else None
+        # cTrader rejects a second subscribe for the same symbol (ALREADY_SUBSCRIBED)
+        # and that error is fatal, so track what this session has asked for.
+        self._subscribed_ids: set[int] = set()
         # Gap detector: logs warnings on tick stream gaps.
         self._gap_detector = GapDetector(threshold_seconds=300)
         # Tick dedup + OOO buffer: prevents duplicate/out-of-order processing.
@@ -812,17 +815,15 @@ class TicksEngine:
         """Subscribe to spot updates for any symbols not yet subscribed."""
         if not self.session or not self.session.symbols_map:
             return
-        current_ids = set()
-        for info in self.session.symbols_by_id.values():
-            current_ids.add(info[0])  # symbolId
         new_ids = []
         for sym in symbols:
             info = self.session.symbols_map.get(sym)
-            if info and info[0] not in current_ids:
+            if info and info[0] not in self._subscribed_ids:
                 new_ids.append(info[0])
         if new_ids:
             try:
                 self.session.subscribe_spots(new_ids)
+                self._subscribed_ids.update(new_ids)
                 logger.info("Subscribed to %d new symbol(s)", len(new_ids))
             except Exception as exc:
                 logger.debug("New symbol subscription failed: %s", exc)
@@ -1058,6 +1059,7 @@ class TicksEngine:
             )
             return
         self.session.subscribe_spots(symbol_ids)
+        self._subscribed_ids = set(symbol_ids)
         if self._disconnects > 0:
             METRICS.increment("reconnect_count")
         self._disconnects = 0  # a fresh handshake means the link is healthy
