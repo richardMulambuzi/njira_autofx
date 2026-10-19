@@ -244,6 +244,8 @@ D1_TF_SECONDS = 86400
 # so a wide value lets an hours-old setup be emitted already expired (US500
 # entry 17:00, valid-until 21:00, written 21:59).
 SNR_STALE_BARS = 2
+# Separate lifecycle identity so SMC and malysian dedupe independently.
+SMC_STRATEGY_KEY = "smc"
 # Home sessions per symbol (looked up case-insensitively).  AUDJPY is an Asia
 # instrument, so it trades in tokyo + sydney; every other symbol defaults to
 # SESSION_ALLOWED_DEFAULT, the london/newyork overlap (12:00-16:00 UTC) — the
@@ -578,6 +580,10 @@ class SignalEngine:
                 if closed_tf in (60, 300):
                     continue
                 all_signals.extend(self._evaluate_snr(symbol))
+
+        # Additive SMC confluence: structure bias + order blocks + FVGs.
+        if closed_tf not in (60, 300) and self._structure and self._obs and self._fvgs:
+            all_signals.extend(self._evaluate_confluence(symbol))
 
         if not all_signals:
             return []
@@ -1096,7 +1102,7 @@ class SignalEngine:
                 # (improve.md §29, §32 — cooldown by setup identity). A held setup
                 # (WAITING/CONFIRMED/...) is refreshed in place; the WAITING
                 # re-evaluation in _re_evaluate_waiting() handles its transition.
-                existing = self._lifecycle.find_active_setup(symbol, draft.direction, "malysian")
+                existing = self._lifecycle.find_active_setup(symbol, draft.direction, SMC_STRATEGY_KEY)
                 if existing is not None:
                     existing.confidence_evidence.update(draft.evidence)
                     existing.confidence_score = draft.confidence
@@ -1126,7 +1132,7 @@ class SignalEngine:
                     confidence=draft.confidence,
                     evidence=draft.evidence,
                     explanation=explanation,
-                    strategy="malysian",
+                    strategy=SMC_STRATEGY_KEY,
                     timeframe="multi",
                     market_regime=self._get_regime_string(symbol),
                 )

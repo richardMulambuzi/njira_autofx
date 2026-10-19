@@ -725,7 +725,7 @@ class TicksEngine:
         now = time.time()
         if now - self._strategy_refresh_ts > 60:
             self._strategy_refresh_ts = now
-            self._strategy_mode = self._read_user_strategy()
+            self._strategy_mode = self._with_ict(self._read_user_strategy())
             # Also refresh user-selected symbols.
             new_syms = self._read_user_symbols()
             if new_syms != self._user_symbols:
@@ -976,6 +976,11 @@ class TicksEngine:
             if s.strip()
         )
         return ("Moving_averages", "malysian", "both") + ict
+
+    def _with_ict(self, base: str) -> str:
+        """Add the env-whitelisted ict_* combos to the live mode string."""
+        modes = ["malysian", "Moving_averages"] if base == "both" else [base]
+        return ",".join(modes + [m for m in self._strategy_allowlist() if m.startswith("ict_")])
 
     def _read_user_strategy(self) -> str:
         """Read the user's chosen strategy from ClickHouse userdetails table.
