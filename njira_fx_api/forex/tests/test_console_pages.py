@@ -28,6 +28,14 @@ class ConsoleGateTests(TestCase):
                 self.assertEqual(resp.status_code, 200)
                 self.assertContains(resp, 'name="password"')
 
+    def test_the_login_form_on_any_page_accepts_the_password(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self.client.post(reverse("dashboard-logout"))
+                resp = self.client.post(reverse(name), {"password": PASSWORD}, follow=True)
+                self.assertEqual(resp.status_code, 200)
+                self.assertContains(resp, "Console sections")
+
     def test_wrong_password_is_rejected(self):
         resp = self.client.post(reverse("dashboard"), {"password": "definitely-not-it"})
         self.assertContains(resp, "Wrong password")
