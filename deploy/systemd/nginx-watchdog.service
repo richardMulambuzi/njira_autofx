@@ -1,0 +1,6 @@
+[Unit]
+Description=Keep the host nginx alive and answering
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nginx-watchdog.sh

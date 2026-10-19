@@ -272,6 +272,12 @@ DEFAULT_FROM_ADDRESS = DEFAULT_FROM_EMAIL
 # Human-readable sender name (exposed for callers that build From: headers).
 MAIL_FROM_NAME = os.environ.get('MAIL_FROM_NAME') or 'Open Voice'
 
+SIGNAL_EMAIL_TO = [
+    address.strip()
+    for address in (os.environ.get('SIGNAL_EMAIL_TO') or 'richardmlambuzi5@gmail.com').split(',')
+    if address.strip()
+]
+
 
 # ---------------------------------------------------------------------------
 # Transport security (HSTS / secure cookies)

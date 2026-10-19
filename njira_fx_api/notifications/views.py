@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage, send_mail
 from django.conf import settings
 from forex.clickhouse.connection import get_clickhouse_client
 from datetime import datetime
@@ -13,10 +13,15 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 # Send an actual email
-def send_email(address, subject, message):
+def send_email(address, subject, message, attachment=None):
     try:
         print("sending email to ", address)
-        send_mail(subject, message, settings.EMAIL_HOST_USER, [address])
+        if attachment is None:
+            send_mail(subject, message, settings.EMAIL_HOST_USER, [address])
+        else:
+            email = EmailMessage(subject, message, settings.EMAIL_HOST_USER, [address])
+            email.attach_file(attachment)
+            email.send(fail_silently=False)
         save_notification(address, subject, message)
         return {"success": True, "message": "Email sent successfully"}
     except Exception as e:

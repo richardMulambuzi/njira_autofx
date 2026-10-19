@@ -1,0 +1,6 @@
+[Unit]
+Description=Reload host nginx so renewed TLS certificates are picked up
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'systemctl is-active --quiet nginx && systemctl reload nginx || systemctl start nginx'

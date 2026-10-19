@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly nginx cert reload after AutoSSL renewal
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
