@@ -96,13 +96,16 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 
-# Allow localhost during development
+# Trusted CSRF origins - env-driven. Ports must be listed explicitly: the
+# browser sends Origin with the port, the proxy forwards Host without it.
 CSRF_TRUSTED_ORIGINS = [
-    # "http://localhost:3000",
+    o.strip()
+    for o in os.environ.get(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        "http://localhost:3000,https://indemw.tech,https://indemw.tech:8443,http://indemw.tech:8004",
+    ).split(",")
+    if o.strip()
 ]
-
-# If using Django 4.1+, use this instead:
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
 
 CORS_ALLOW_HEADERS= [
     'content-type',
