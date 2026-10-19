@@ -1,0 +1,7 @@
+[Unit]
+Description=Email pending njira signal cards
+After=njira-api.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman exec njira-api python manage.py email_signal_cards
