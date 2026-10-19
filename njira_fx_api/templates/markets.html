@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block page_title %}Markets - Njira FX{% endblock %}
+{% block page_sub %}market data{% endblock %}
+
+{% block body %}
+  <section class="glass banner" id="banner">
+    <div class="cell"><span class="k">Tick feed</span><span class="big" id="feed-state">-</span></div>
+    <div class="cell"><span class="k">Ticks / min</span><span class="big" id="ticks-minute">-</span></div>
+    <div class="cell"><span class="k">Rows retained</span><span class="big n" id="store-rows">-</span></div>
+    <div class="cell"><span class="k">Store size</span><span class="big n" id="store-size">-</span></div>
+    <div class="cell"><span class="k">Newest tick</span><span class="big n" id="store-newest">-</span></div>
+    <div class="bar" id="tick-bar"><i></i></div>
+  </section>
+
+  <section class="glass panel">
+    <h2>Candle close <span class="muted">UTC-aligned boundaries, CAT clock</span></h2>
+    <div class="candles" id="candles"></div>
+  </section>
+
+  <section class="glass panel">
+    <h2>Live prices <span class="muted">newest tick per symbol, from the durable store</span></h2>
+    <table>
+      <thead><tr><th>Symbol</th><th class="n">Bid</th><th class="n">Ask</th><th class="n">Spread</th><th class="n">Age</th></tr></thead>
+      <tbody id="prices"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>OHLC candles <span class="muted">api/market/candles</span></h2>
+    <p class="sub">These candles are aggregated by ClickHouse, which is switched off on this deployment, so the table stays empty until ClickHouse is enabled. The request itself is wired and will fill the moment the store answers.</p>
+    <div class="hd-right">
+      <select id="ohlc-symbol">
+        <option>EURUSD</option>
+        <option>GBPUSD</option>
+        <option>XAUUSD</option>
+        <option>USDJPY</option>
+        <option>NAS100</option>
+        <option>US500</option>
+        <option>US30</option>
+        <option>WTOIL-PERP</option>
+      </select>
+      <select id="ohlc-timeframe">
+        <option>1m</option>
+        <option>5m</option>
+        <option selected>15m</option>
+        <option>1h</option>
+        <option>4h</option>
+      </select>
+      <input id="ohlc-limit" type="number" min="1" max="1000" value="200" style="width:96px">
+      <button type="button" class="icon-btn" id="ohlc-btn">Load</button>
+    </div>
+    <table>
+      <thead><tr><th class="n">Time</th><th class="n">Open</th><th class="n">High</th><th class="n">Low</th><th class="n">Close</th></tr></thead>
+      <tbody id="ohlc"></tbody>
+    </table>
+    <p class="foot n" id="ohlc-meta">no request sent yet</p>
+  </section>
+
+  <section class="glass panel">
+    <h2>Trading symbols <span class="muted">api/symbols</span></h2>
+    <table>
+      <thead><tr><th>Symbol</th><th>Name</th><th>Spread</th><th>Volatility</th><th>Best time</th></tr></thead>
+      <tbody id="assets"></tbody>
+    </table>
+  </section>
+{% endblock %}
+
+{% block page_js %}
+function candleRow(c) {
+  return td(when((c.time || 0) * 1000), "n") + td(num(c.open, 5), "n") + td(num(c.high, 5), "n")
+    + td(num(c.low, 5), "n") + td(num(c.close, 5), "n");
+}
+
+function loadOhlc() {
+  var sym = document.getElementById("ohlc-symbol").value;
+  var tf = document.getElementById("ohlc-timeframe").value;
+  var lim = document.getElementById("ohlc-limit").value || "200";
+  var meta = document.getElementById("ohlc-meta");
+  if (meta) meta.textContent = "loading " + sym + " " + tf + " ...";
+  get(REL + "market/candles/?symbol=" + encodeURIComponent(sym) + "&timeframe=" + encodeURIComponent(tf) + "&limit=" + encodeURIComponent(lim))
+    .then(function (d) {
+      var items = (d && d.candles) || [];
+      rows("ohlc", items, candleRow, 5);
+      if (meta) meta.textContent = items.length + " candles  " + catFull();
+    })
+    .catch(function (e) {
+      rows("ohlc", [], candleRow, 5);
+      if (meta) meta.textContent = "failed: " + String(e.message || e);
+    });
+}
+
+var ohlcBtn = document.getElementById("ohlc-btn");
+if (ohlcBtn) ohlcBtn.addEventListener("click", loadOhlc);
+
+function refresh() {
+  get(LIVE).then(paintTicks).catch(onErr("feed-state", "ERROR"));
+  get(REL + "symbols/").then(paintAssets).catch(function () { paintAssets(null); });
+}
+
+refresh();
+setInterval(refresh, 15000);
+{% endblock %}

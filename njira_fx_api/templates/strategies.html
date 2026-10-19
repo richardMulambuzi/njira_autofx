@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block page_title %}Strategies - Njira FX{% endblock %}
+{% block page_sub %}strategy engine{% endblock %}
+
+{% block body %}
+  <section class="glass banner" id="banner">
+    <div class="cell"><span class="k">Strategies reporting</span><span class="big" id="strategy-count">-</span></div>
+    <div class="cell"><span class="k">History rows</span><span class="big n" id="history-count">-</span></div>
+    <div class="cell"><span class="k">Up stream</span><span class="big n" id="up-stream">-</span></div>
+  </section>
+
+  <section class="glass panel">
+    <h2>Strategy performance <span class="muted">api/strategies/performance</span></h2>
+    <p class="sub">Counters live in gunicorn memory, so a restart empties this table until signals evaluate again.</p>
+    <table>
+      <thead><tr><th>Strategy</th><th class="n">Trades</th><th class="n">Win %</th><th class="n">P/L</th></tr></thead>
+      <tbody id="strategies"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>Signal mix <span class="muted">grouped from signal history</span></h2>
+    <table>
+      <thead><tr><th>Strategy</th><th class="n">Signals</th><th class="n">Buys</th><th class="n">Sells</th><th class="n">Last seen</th></tr></thead>
+      <tbody id="signal-mix"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>Per-symbol trend <span class="muted">api/market/analyze</span></h2>
+    <table>
+      <thead><tr><th>Symbol</th><th class="n">Close</th><th class="n">SMA 20</th><th class="n">SMA 50</th><th>Trend</th></tr></thead>
+      <tbody id="analyze"></tbody>
+    </table>
+  </section>
+{% endblock %}
+
+{% block page_js %}
+var TRACKED = ["EURUSD", "GBPUSD", "XAUUSD", "USDJPY", "NAS100", "US500", "US30", "WTOIL-PERP"];
+
+function isBuy(side) {
+  return /BUY/i.test(String(side || ""));
+}
+
+function paintStrategies(data) {
+  var items = (data && data.strategies) || [];
+  text("strategy-count", String(items.length), items.length > 0 ? "ok" : "");
+  rows("strategies", items, function (s) {
+    var trades = s.trades === undefined ? s.total_trades : s.trades;
+    var pnl = s.profit_loss === undefined ? s.pnl : s.profit_loss;
+    var pct = s.win_rate === undefined || s.win_rate === null ? "-" : num(s.win_rate, 1) + "%";
+    return td(s.name || s.strategy || "-") + td(num(trades, 0), "n") + td(pct, "n") + td(num(pnl, 2), "n");
+  }, 4);
+}
+
+function paintMix(signals) {
+  var items = signals || [];
+  var hc = document.getElementById("history-count");
+  if (hc) hc.textContent = String(items.length);
+
+  var byStrategy = {};
+  items.forEach(function (s) {
+    var k = sigName(s);
+    if (!byStrategy[k]) byStrategy[k] = { name: k, total: 0, buys: 0, sells: 0, last: "" };
+    var bucket = byStrategy[k];
+    bucket.total += 1;
+    if (isBuy(sigSide(s))) bucket.buys += 1;
+    else bucket.sells += 1;
+    var t = sigTime(s);
+    if (t && (!bucket.last || String(t) > String(bucket.last))) bucket.last = t;
+  });
+  var list = Object.keys(byStrategy).map(function (k) { return byStrategy[k]; });
+  list.sort(function (a, b) { return b.total - a.total; });
+  rows("signal-mix", list, function (r) {
+    return td(r.name) + td(r.total, "n") + td(r.buys, "n") + td(r.sells, "n") + td(when(r.last), "n");
+  }, 5);
+}
+
+function paintAnalyze() {
+  var settled = 0;
+  var out = [];
+  TRACKED.forEach(function (sym) {
+    get(REL + "market/analyze/" + sym + "/").then(function (d) {
+      out.push({
+        symbol: d.symbol || sym,
+        close: d.last_close,
+        sma20: d.sma20,
+        sma50: d.sma50,
+        trend: d.trend || "-",
+      });
+    }).catch(function () {
+      out.push({ symbol: sym, close: null, sma20: null, sma50: null, trend: "unavailable" });
+    }).then(function () {
+      settled += 1;
+      if (settled !== TRACKED.length) return;
+      out.sort(function (a, b) { return a.symbol < b.symbol ? -1 : 1; });
+      rows("analyze", out, function (r) {
+        var cls = r.trend === "up" ? "ok" : (r.trend === "down" ? "bad" : "");
+        return td(r.symbol) + td(num(r.close, 5), "n") + td(num(r.sma20, 5), "n")
+          + td(num(r.sma50, 5), "n") + '<td class="' + cls + '">' + esc(r.trend) + "</td>";
+      }, 5);
+    });
+  });
+}
+
+function refresh() {
+  get(REL + "strategies/performance/").then(paintStrategies).catch(function () { paintStrategies(null); });
+  get(REL + "signals/history/").then(function (d) {
+    paintMix((d && d.signals) || []);
+  }).catch(function () { paintMix([]); });
+  paintAnalyze();
+  stamp("up-stream");
+}
+
+refresh();
+setInterval(refresh, 30000);
+{% endblock %}

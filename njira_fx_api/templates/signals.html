@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block page_title %}Signals - Njira FX{% endblock %}
+{% block page_sub %}signal pipeline{% endblock %}
+
+{% block body %}
+  <section class="glass banner" id="banner">
+    <div class="cell"><span class="k">Live signals</span><span class="big" id="signal-count">-</span></div>
+    <div class="cell"><span class="k">Cards on disk</span><span class="big" id="cards-count">-</span></div>
+    <div class="cell"><span class="k">Cards written</span><span class="big n" id="up-stream">-</span></div>
+    <div class="bar" id="tick-bar"><i></i></div>
+  </section>
+
+  <section class="glass panel">
+    <h2>Signal cards on disk <span class="muted" id="cards-meta"></span></h2>
+    <p class="sub">Durable markdown cards written by the signal logger. This is the only signal source that survives a restart.</p>
+    <table>
+      <thead><tr><th>File</th><th class="n">Modified</th><th class="n">Size</th></tr></thead>
+      <tbody id="cards"></tbody>
+    </table>
+  </section>
+
+  <div class="grid">
+    <section class="glass panel">
+      <h2>Live signals</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th></tr></thead>
+        <tbody id="signals-live"></tbody>
+      </table>
+    </section>
+    <section class="glass panel">
+      <h2>Live signals v2</h2>
+      <table>
+        <thead><tr><th>Strategy</th><th class="n">Count</th><th>Last</th></tr></thead>
+        <tbody id="signals-v2"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <section class="glass panel">
+    <h2>Signal history</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="n">Confidence</th></tr></thead>
+      <tbody id="signals-history"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>SNR signals <span class="muted">api/v1/signals/snr</span></h2>
+    <table>
+      <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="n">Confidence</th></tr></thead>
+      <tbody id="signals-snr"></tbody>
+    </table>
+  </section>
+{% endblock %}
+
+{% block page_js %}
+function sigRow5(s) {
+  return td(when(sigTime(s)), "n") + td(s.symbol || "-") + td(sigSide(s)) + td(sigName(s))
+    + td(num(s.confidence, 2), "n");
+}
+
+function paintV2(data) {
+  var items = (data && data.signals) || [];
+  var byStrategy = {};
+  items.forEach(function (s) {
+    var k = s.strategy_name || s.strategy || sigName(s);
+    if (!byStrategy[k]) byStrategy[k] = { name: k, count: 0, last: "" };
+    byStrategy[k].count += 1;
+    var t = sigTime(s);
+    if (t && (!byStrategy[k].last || String(t) > String(byStrategy[k].last))) byStrategy[k].last = t;
+  });
+  var list = Object.keys(byStrategy).map(function (k) { return byStrategy[k]; });
+  list.sort(function (a, b) { return b.count - a.count; });
+  rows("signals-v2", list, function (r) {
+    return td(r.name) + td(r.count, "n") + td(when(r.last), "n");
+  }, 3);
+}
+
+function refresh() {
+  get(LIVE).then(function (d) {
+    var cards = d.cards || {};
+    var cc = document.getElementById("cards-count");
+    if (cc) cc.textContent = cards.exists ? String(cards.count) : "-";
+    cc.className = "big" + (cards.exists && cards.count > 0 ? " ok" : "");
+    paintCards(cards);
+  }).catch(function () { paintCards(null); });
+
+  get(REL + "signals/live/").then(paintSignals).catch(function () { paintSignals(null); });
+  get(REL + "signals/history/").then(paintHistory).catch(function () { paintHistory(null); });
+  get(REL + "signals/live-v2/").then(paintV2).catch(function () { paintV2(null); });
+  get(REL + "v1/signals/snr/").then(function (d) {
+    rows("signals-snr", (d && d.signals) || [], sigRow5, 5);
+  }).catch(function () { rows("signals-snr", [], sigRow5, 5); });
+
+  stamp("up-stream");
+}
+
+refresh();
+setInterval(refresh, 15000);
+{% endblock %}

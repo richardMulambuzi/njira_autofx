@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block page_title %}System - Njira FX{% endblock %}
+{% block page_sub %}runtime and health{% endblock %}
+
+{% block body %}
+  <section class="glass banner" id="banner">
+    <div class="cell"><span class="k">API</span><span class="big" id="api-state">-</span></div>
+    <div class="cell"><span class="k">Reported status</span><span class="big" id="runtime-status">-</span></div>
+    <div class="cell"><span class="k">Uptime</span><span class="big n" id="uptime">-</span></div>
+    <div class="cell"><span class="k">Tick feed</span><span class="big" id="feed-state">-</span></div>
+    <div class="cell"><span class="k">Ticks / min</span><span class="big" id="ticks-minute">-</span></div>
+    <div class="bar" id="tick-bar"><i></i></div>
+  </section>
+
+  <section class="glass panel">
+    <h2>Tick store <span class="muted">durable SQLite sink</span></h2>
+    <table>
+      <thead><tr><th>Measure</th><th class="n">Value</th></tr></thead>
+      <tbody>
+        <tr><td>Rows retained</td><td class="n" id="store-rows">-</td></tr>
+        <tr><td>File size</td><td class="n" id="store-size">-</td></tr>
+        <tr><td>Newest tick</td><td class="n" id="store-newest">-</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>Health counters <span class="muted">api/health</span></h2>
+    <table>
+      <thead><tr><th>Counter</th><th class="n">Value</th></tr></thead>
+      <tbody id="counters"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>Signal directory <span class="muted" id="cards-meta"></span></h2>
+    <table>
+      <thead><tr><th>File</th><th class="n">Modified</th><th class="n">Size</th></tr></thead>
+      <tbody id="cards"></tbody>
+    </table>
+  </section>
+
+  <section class="glass panel">
+    <h2>Realtime self test</h2>
+    <p class="sub">Asks the API to broadcast a tick on the njira-market channel and reports what it answered.</p>
+    <button type="button" class="icon-btn" id="rt-btn">Run</button>
+    <p class="foot n" id="rt-result">not run yet</p>
+  </section>
+{% endblock %}
+
+{% block page_js %}
+function refresh() {
+  get(REL + "health/").then(paintHealth).catch(onErr("api-state", "DOWN"));
+
+  get(LIVE).then(function (d) {
+    paintTicks(d);
+    paintCards(d.cards);
+  }).catch(onErr("feed-state", "ERROR"));
+}
+
+var rtBtn = document.getElementById("rt-btn");
+if (rtBtn) {
+  rtBtn.addEventListener("click", function () {
+    var out = document.getElementById("rt-result");
+    if (out) out.textContent = "running...";
+    get(REL + "realtime/test/").then(function (d) {
+      if (out) out.textContent = "sent=" + String(d.sent) + "  hint=" + String(d.hint || "-");
+    }).catch(function (e) {
+      if (out) out.textContent = "failed: " + String(e.message || e);
+    });
+  });
+}
+
+refresh();
+setInterval(refresh, 15000);
+{% endblock %}

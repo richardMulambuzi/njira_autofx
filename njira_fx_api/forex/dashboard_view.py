@@ -1,4 +1,4 @@
-"""Human-readable dashboard for the njira FX API."""
+"""Server-rendered console pages for the njira FX API."""
 from __future__ import annotations
 
 import hmac
@@ -8,12 +8,25 @@ import time
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth import login as auth_login
+from django.contrib.auth import logout as auth_logout
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
 SESSION_KEY = "njira_dashboard_ok"
 LATEST_SCAN_ROWS = 200
+AUTH_BACKEND = "django.contrib.auth.backends.ModelBackend"
+CONSOLE_USER = "console"
+
+NAV = [
+    ("dashboard", "Overview", "dashboard"),
+    ("markets", "Markets", "console-markets"),
+    ("signals", "Signals", "console-signals"),
+    ("strategies", "Strategies", "console-strategies"),
+    ("system", "System", "console-system"),
+]
 
 
 def _expected_password() -> str:
@@ -91,35 +104,77 @@ def _is_authed(request: HttpRequest) -> bool:
     return bool(_expected_password()) and bool(request.session.get(SESSION_KEY))
 
 
-@require_http_methods(["GET", "POST"])
-def dashboard(request: HttpRequest) -> HttpResponse:
+def _grant(request: HttpRequest) -> None:
+    """Mark the session signed in and attach a real Django principal.
+
+    The JSON API gates on IsAuthenticated, so without an actual user every
+    provider, sync and backtest read answers 401 to an otherwise signed-in
+    console. The user carries an unusable password: the console password is
+    the only way in.
+    """
+    request.session[SESSION_KEY] = True
+    user, created = get_user_model().objects.get_or_create(
+        username=os.environ.get("NJIRA_DASHBOARD_USER", CONSOLE_USER)
+    )
+    if created:
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+    auth_login(request, user, backend=AUTH_BACKEND)
+
+
+def _gate(request: HttpRequest) -> dict:
     expected = _expected_password()
     error = None
 
     if request.method == "POST":
         supplied = request.POST.get("password", "")
         if expected and hmac.compare_digest(supplied, expected):
-            request.session[SESSION_KEY] = True
+            _grant(request)
         else:
             request.session.pop(SESSION_KEY, None)
             error = "Wrong password."
             time.sleep(1)
 
-    return render(
-        request,
-        "dashboard.html",
-        {
-            "authed": _is_authed(request),
-            "configured": bool(expected),
-            "error": error,
-        },
-    )
+    return {"authed": _is_authed(request), "configured": bool(expected), "error": error}
+
+
+def _page(request: HttpRequest, template: str, active: str) -> HttpResponse:
+    return render(request, template, {**_gate(request), "nav": NAV, "active": active})
+
+
+@require_http_methods(["GET", "POST"])
+def dashboard(request: HttpRequest) -> HttpResponse:
+    return _page(request, "dashboard.html", "dashboard")
+
+
+@require_http_methods(["GET", "POST"])
+def console_markets(request: HttpRequest) -> HttpResponse:
+    return _page(request, "markets.html", "markets")
+
+
+@require_http_methods(["GET", "POST"])
+def console_signals(request: HttpRequest) -> HttpResponse:
+    return _page(request, "signals.html", "signals")
+
+
+@require_http_methods(["GET", "POST"])
+def console_strategies(request: HttpRequest) -> HttpResponse:
+    return _page(request, "strategies.html", "strategies")
+
+
+@require_http_methods(["GET", "POST"])
+def console_system(request: HttpRequest) -> HttpResponse:
+    return _page(request, "system.html", "system")
 
 
 @require_http_methods(["GET", "POST"])
 def dashboard_logout(request: HttpRequest) -> HttpResponse:
-    request.session.pop(SESSION_KEY, None)
-    return render(request, "dashboard.html", {"authed": False, "configured": bool(_expected_password()), "error": None})
+    auth_logout(request)
+    return render(
+        request,
+        "dashboard.html",
+        {"authed": False, "configured": bool(_expected_password()), "error": None, "nav": NAV, "active": "dashboard"},
+    )
 
 
 @require_http_methods(["GET"])
