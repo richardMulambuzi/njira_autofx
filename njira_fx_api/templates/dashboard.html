@@ -283,7 +283,7 @@
     if (foot) {
       foot.textContent = "status=" + ((h && h.status) || "?")
         + "  uptime=" + (h && h.uptime_seconds ? Math.round(h.uptime_seconds) + "s" : "?")
-        + "  clickhouse=" + ((h && h.clickhouse && h.clickhouse.connected) ? "connected" : "disabled")
+        + "  clickhouse=" + (!h || !h.clickhouse ? "?" : (h.clickhouse.enabled ? (h.clickhouse.connected ? "connected" : "DOWN") : "disabled"))
         + "  poll=" + (POLL_MS / 1000) + "s";
     }
   }

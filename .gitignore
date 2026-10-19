@@ -40,3 +40,5 @@ PDF/SNR Malaysia.pdf
 
 # generated signal cards (runtime output, not source)
 njira_fx_api/signals/*/
+
+.playwright-mcp/

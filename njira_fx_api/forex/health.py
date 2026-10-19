@@ -21,7 +21,7 @@ class HealthCheckView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        connected, latency_ms = self._ping_clickhouse()
+        clickhouse = self._clickhouse_status()
         snapshot = METRICS.snapshot()
         counters = snapshot.get("counters", {})
 
@@ -29,7 +29,7 @@ class HealthCheckView(APIView):
         persistence_failures = counters.get("clickhouse_insert_failures", 0)
         buffer_utilization = counters.get("buffer_utilization", 0)
 
-        if not connected:
+        if clickhouse["enabled"] and not clickhouse["connected"]:
             status = "unhealthy"
         elif persistence_failures > 0 or buffer_utilization > 80:
             status = "degraded"
@@ -41,20 +41,26 @@ class HealthCheckView(APIView):
                 "status": status,
                 "timestamp": _utc_now(),
                 "uptime_seconds": round(time.monotonic() - _START, 3),
-                "clickhouse": {"connected": connected, "latency_ms": latency_ms},
+                "clickhouse": clickhouse,
                 "metrics": snapshot,
             }
         )
 
     @staticmethod
-    def _ping_clickhouse():
+    def _clickhouse_status():
+        client = get_clickhouse_client()
+        if client is None:
+            return {"enabled": False, "connected": False, "latency_ms": 0.0}
         try:
-            client = get_clickhouse_client()
             start = time.monotonic()
             client.query("SELECT 1")
-            return True, round((time.monotonic() - start) * 1000, 3)
+            return {
+                "enabled": True,
+                "connected": True,
+                "latency_ms": round((time.monotonic() - start) * 1000, 3),
+            }
         except Exception:
-            return False, 0.0
+            return {"enabled": True, "connected": False, "latency_ms": 0.0}
 
 
 def _utc_now():
