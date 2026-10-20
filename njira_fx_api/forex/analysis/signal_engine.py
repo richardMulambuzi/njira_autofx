@@ -781,6 +781,7 @@ class SignalEngine:
 
         # Contradiction analysis — reuse polisher's report if present to avoid double compute.
         contra_report = result.contradiction_report
+
         signal.confidence_evidence["contradiction"] = contra_report.to_dict()
 
         if contra_report.recommendation == "WAIT":
@@ -1098,12 +1099,51 @@ class SignalEngine:
                 # Contradiction analysis — reuse polisher's report if present to avoid double compute.
                 contra_report = result.contradiction_report
 
+                try:
+                    from forex.analysis.confluence_gate import (
+                        confluence_required as _conf_required,
+                        score_signal as _score_signal,
+                    )
+                    from forex.analysis.signal_logger import log_signal_to_md as _log_signal
+                    _qrep = result.quality_gate_report
+                    _qpassed = bool(_qrep.passed) if _qrep is not None else False
+                    _htf = str((draft.evidence or {}).get("htf_bias", "") or self._htf_bias(symbol))
+                    _sess_ev = (draft.evidence or {}).get("session", "")
+                    _sess = "/".join(_sess_ev) if isinstance(_sess_ev, (list, tuple)) else str(_sess_ev or "")
+                    _need = _conf_required()
+                    _score, _breakdown = _score_signal(draft, _qpassed, _htf, _sess)
+                    draft.evidence["confluence_score"] = _score
+                    draft.evidence["confluence_breakdown"] = _breakdown
+                    draft.evidence["confluence_required"] = _need
+
+                    def _write_card() -> None:
+                        try:
+                            from forex.analysis.tp_ladder import build_tp_ladder
+                            draft.evidence["tp_ladder"] = build_tp_ladder(
+                                draft.direction, draft.entry, draft.stop_loss
+                            )
+                            if draft.entry_time is not None:
+                                draft.evidence["expiry_time"] = (
+                                    float(draft.entry_time) + SNR_STALE_BARS * M15_TF_SECONDS
+                                )
+                            draft.evidence["signal_log"] = str(_log_signal(
+                                symbol, draft, _qrep, _score, _breakdown, _need, _sess, _htf,
+                                uuid.uuid4().hex,
+                            ))
+                        except Exception as exc:  # noqa: BLE001 - card write must not block emits
+                            logger.warning("[SMC] card write failed for %s: %s", symbol, exc)
+                except ImportError as exc:  # noqa: BLE001 - gate modules missing
+                    logger.warning("[SMC] confluence gate unavailable for %s: %s", symbol, exc)
+                    _write_card = None
+
                 # ── 6. Dedup: update held setup instead of creating a duplicate ─
                 # (improve.md §29, §32 — cooldown by setup identity). A held setup
                 # (WAITING/CONFIRMED/...) is refreshed in place; the WAITING
                 # re-evaluation in _re_evaluate_waiting() handles its transition.
                 existing = self._lifecycle.find_active_setup(symbol, draft.direction, SMC_STRATEGY_KEY)
                 if existing is not None:
+                    if _write_card:
+                        _write_card()
                     existing.confidence_evidence.update(draft.evidence)
                     existing.confidence_score = draft.confidence
                     existing.explanation = self._build_explanation(draft)
@@ -1122,6 +1162,8 @@ class SignalEngine:
                     continue
 
                 # ── 6b. Create signal via lifecycle manager ──────────────────
+                if _write_card:
+                    _write_card()
                 explanation = self._build_explanation(draft)
                 signal = self._lifecycle.create(
                     symbol=symbol,
