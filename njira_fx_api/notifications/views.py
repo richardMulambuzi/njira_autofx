@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.core.mail import EmailMessage, send_mail
+from django.core.mail import EmailMessage, EmailMultiAlternatives, send_mail
 from django.conf import settings
 from forex.clickhouse.connection import get_clickhouse_client
 from datetime import datetime
@@ -24,7 +24,10 @@ def send_email(address, subject, message, attachment=None, html=None):
         if attachment is None and html is None:
             send_mail(subject, message, settings.EMAIL_HOST_USER, [address])
         else:
-            email = EmailMessage(subject, message, settings.EMAIL_HOST_USER, [address])
+            # EmailMessage has no attach_alternative; only the multi alternative
+            # subclass can carry the html body. This is why every card mail
+            # failed before it left the process.
+            email = EmailMultiAlternatives(subject, message, settings.EMAIL_HOST_USER, [address])
             if html is not None:
                 email.attach_alternative(html, "text/html")
             if attachment is not None:
