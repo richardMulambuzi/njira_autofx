@@ -16,19 +16,28 @@ from forex.analysis.tp_ladder import ladder_summary
 
 logger = logging.getLogger("forex.analysis.signal_logger")
 SIGNAL_LOG_DIR = os.environ.get("SIGNAL_LOG_DIR", "signals")
+SIGNAL_MAIL_TO = os.environ.get("SIGNAL_MAIL_TO", "")
 
 
 def _ev(draft: Any) -> dict:
     return (getattr(draft, "evidence", None) or {}) if draft is not None else {}
 
 
-def _fmt(v: Any) -> str:
+def _fmt(v: Any, places: int | None = None) -> str:
     if v is None:
         return "—"
     if isinstance(v, bool):
         return str(v)
     if isinstance(v, float):
-        return f"{v:.5f}" if abs(v) > 100 else f"{v:.2f}"
+        if places is not None:
+            return f"{v:.{places}f}"
+        # One rule for every instrument silently rounded FX quotes: 1.12168
+        # became 1.12 and entry and stop loss printed identical.
+        if abs(v) >= 1000:
+            return f"{v:.2f}"
+        if abs(v) >= 10:
+            return f"{v:.3f}"
+        return f"{v:.5f}"
     if isinstance(v, (list, tuple)):
         return "/".join(str(x) for x in v) if v else "—"
     return str(v)
@@ -83,6 +92,22 @@ _EMAIL_TEMPLATE = """<!doctype html>
 """
 
 
+def _mail_card(path: pathlib.Path, html: str) -> None:
+    """Mail the finished card. A mail failure must never lose the card."""
+    if not SIGNAL_MAIL_TO:
+        logger.warning("signal_logger: SIGNAL_MAIL_TO unset, card %s not mailed", path.name)
+        return
+    try:
+        from notifications.views import send_email
+        body = path.read_text(encoding="utf-8")
+        subject = body.splitlines()[0].lstrip("# ").strip()
+        result = send_email(SIGNAL_MAIL_TO, subject, body, html=html or None)
+        if not isinstance(result, dict) or not result.get("success"):
+            logger.warning("signal_logger: mail failed for %s: %s", path.name, result)
+    except Exception as exc:  # noqa: BLE001: mail must never block the card
+        logger.warning("signal_logger: mail failed for %s: %s", path.name, exc)
+
+
 def log_signal_to_md(
     symbol: str,
     draft: Any,
@@ -134,7 +159,7 @@ def log_signal_to_md(
         f"| Entry | {_fmt(getattr(draft, 'entry', None))} |",
         f"| Stop Loss | {_fmt(getattr(draft, 'stop_loss', None))} |",
         f"| Risk:Reward | {rr:.2f} |",
-        f"| Confidence | {_fmt(getattr(draft, 'confidence', None))} |",
+        f"| Confidence | {_fmt(getattr(draft, 'confidence', None), places=2)} |",
         "",
         "## Take Profit Ladder",
         "| Level | Price | R | Distance | Chance before SL | Risk | Note |",
@@ -198,6 +223,7 @@ def log_signal_to_md(
     # Companion .html the mailer renders instead of reading the raw markup.
     # Everything the reader needs first (entry time, ladder) sits at the top;
     # the audit tables sink to the bottom.
+    html_body = ""
     html_path = path.with_suffix(".html")
     try:
         accent = "#1f8f4e" if direction == "BUY" else "#b5382f"
@@ -242,7 +268,7 @@ def log_signal_to_md(
                 _row("Entry price", _fmt(getattr(draft, "entry", None)))
                 + _row("Stop loss", _fmt(getattr(draft, "stop_loss", None)))
                 + _row("Risk : reward", f"{rr:.2f}")
-                + _row("Confidence", _fmt(getattr(draft, "confidence", None)))
+                + _row("Confidence", _fmt(getattr(draft, "confidence", None), places=2))
                 + (
                     _row("Safest target", f'{best.get("name")} at {best.get("price")}')
                     if best else ""
@@ -269,8 +295,10 @@ def log_signal_to_md(
             "generated": now.astimezone(CAT).strftime("%Y-%m-%d %H:%M CAT"),
         }
         html_path.write_text(html, encoding="utf-8")
+        html_body = html
     except Exception as exc:  # noqa: BLE001: markup must never block the .md
         logger.warning("signal_logger: html render failed for %s: %s", symbol, exc)
+    _mail_card(path, html_body)
     return path
 
 
