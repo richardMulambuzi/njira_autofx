@@ -584,10 +584,14 @@ class TicksEngine:
     def _send_pre_alert(self, symbol: str, draft, analyzer: str,
                         lead_min: int, forming: dict, candles: list[dict]) -> None:
         from django.conf import settings
+        from forex.analysis.signal_logger import CAT
         from notifications.views import send_email
 
-        fmt = getattr(forming.get("close_time"), "strftime", None)
-        closes_at = fmt("%H:%M UTC") if fmt else "the 15M close"
+        close_time = forming.get("close_time")
+        closes_at = (
+            close_time.astimezone(CAT).strftime("%H:%M CAT")
+            if hasattr(close_time, "astimezone") else "the 15M close"
+        )
         projection = "\n".join(_projection_map(draft, forming, candles))
         try:
             from forex.analysis.tp_ladder import build_tp_ladder, ladder_summary

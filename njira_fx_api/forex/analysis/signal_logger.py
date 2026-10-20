@@ -34,73 +34,52 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
-def _utc_str(epoch: Any) -> str:
-    """Format an epoch-seconds stamp as UTC, or a dash when absent."""
+CAT = datetime.timezone(datetime.timedelta(hours=2))
+
+
+def _cat_str(epoch: Any) -> str:
+    """Format an epoch-seconds stamp in Central Africa Time, or a dash when absent."""
     try:
         dt = datetime.datetime.fromtimestamp(float(epoch), tz=datetime.timezone.utc)
     except (TypeError, ValueError, OSError):
         return "-"
-    return dt.strftime("%Y-%m-%d %H:%M UTC")
+    return dt.astimezone(CAT).strftime("%Y-%m-%d %H:%M CAT")
 
 
 # Plain (not f-string) so the CSS braces stay literal.  %-placeholders only.
 _EMAIL_TEMPLATE = """<!doctype html>
-<html><body style="margin:0;padding:0;background:#0e1116;">
-<div style="max-width:640px;margin:0 auto;padding:24px;
-            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-            color:#e8ecf1;">
+<html><body style="margin:0;padding:0;background:#0b0e13;">
+<div style="max-width:640px;margin:0 auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#e8ecf1;">
 
-  <div style="background:%(accent)s;border-radius:14px 14px 0 0;padding:20px 22px;">
-    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;
-                opacity:.85;">njira signal</div>
-    <div style="font-size:30px;font-weight:700;margin-top:6px;line-height:1.1;">
-      %(symbol)s %(direction)s
-    </div>
-    <div style="font-size:14px;opacity:.9;margin-top:6px;">%(status)s</div>
-  </div>
-
-  <div style="background:#171c24;padding:20px 22px;">
-    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;
-                color:#8b98a9;">Where to enter</div>
-    <div style="font-size:26px;font-weight:700;margin:8px 0 2px;">%(entry_time)s</div>
-    <div style="font-size:13px;color:#8b98a9;">%(entry_note)s</div>
-    <table style="width:100%%;border-collapse:collapse;margin-top:16px;font-size:14px;">
-      %(entry_rows)s
-    </table>
-  </div>
-
-  <div style="background:#141920;padding:20px 22px;">
-    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;
-                color:#8b98a9;">Take profit ladder</div>
-    <table style="width:100%%;border-collapse:collapse;margin-top:12px;font-size:13px;">
-      <tr style="color:#8b98a9;text-align:left;">
-        <th style="padding:6px 4px;">Level</th>
-        <th style="padding:6px 4px;">Price</th>
-        <th style="padding:6px 4px;">Chance</th>
-        <th style="padding:6px 4px;">Risk</th>
-      </tr>
-      %(ladder_rows)s
-    </table>
-    <div style="font-size:13px;color:#aab6c5;margin-top:14px;
-                border-left:3px solid %(accent)s;padding-left:12px;">
-      %(ladder_summary)s
-    </div>
-    %(ladder_notes)s
-  </div>
-
-  <div style="background:#11151b;padding:18px 22px;font-size:13px;color:#8b98a9;">
-    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;
-                margin-bottom:8px;">The setup</div>
-    <table style="width:100%%;border-collapse:collapse;">%(evidence_rows)s</table>
-    <div style="margin-top:14px;">Confluence %(confluence)s. %(gate)s</div>
-  </div>
-
-  <div style="background:#0e1116;padding:14px 22px;font-size:11px;color:#5d6b7c;">
-    Generated %(generated)s by the njira engine. A signal is a setup, not a
-    promise: the stop loss is where the idea is wrong.
-  </div>
+<div style="background:%(accent)s;border-radius:16px 16px 0 0;padding:22px;">
+<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.85;">njira signal</div>
+<div style="font-size:34px;font-weight:800;margin-top:10px;line-height:1.05;letter-spacing:-.5px;">%(symbol)s <span style="display:inline-block;background:#0b0e13;color:#ffffff;border-radius:999px;padding:3px 13px;font-size:15px;font-weight:700;vertical-align:middle;">%(direction)s</span></div>
+<div style="font-size:14px;opacity:.92;margin-top:10px;">%(status)s</div>
 </div>
-</body></html>
+
+<div style="background:#161b22;padding:22px;">
+<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#8b98a9;">Where to enter</div>
+<div style="font-size:28px;font-weight:800;margin:10px 0 4px;letter-spacing:-.3px;">%(entry_time)s</div>
+<div style="font-size:13px;color:#8b98a9;">%(entry_note)s</div>
+<table style="width:100%%;border-collapse:collapse;margin-top:18px;font-size:14px;border-top:1px solid #232a33;">%(entry_rows)s</table>
+</div>
+
+<div style="background:#12171e;padding:22px;">
+<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#8b98a9;">Take profit ladder</div>
+<table style="width:100%%;border-collapse:collapse;margin-top:14px;font-size:13px;">
+<tr style="color:#8b98a9;text-align:left;font-size:11px;letter-spacing:1px;text-transform:uppercase;"><th style="padding:6px 4px;font-weight:600;">Level</th><th style="padding:6px 4px;font-weight:600;">Price</th><th style="padding:6px 4px;font-weight:600;">Chance</th><th style="padding:6px 4px;font-weight:600;">Risk</th></tr>%(ladder_rows)s</table>
+<div style="font-size:13px;color:#c2ccd8;margin-top:16px;background:#0d1117;border-left:3px solid %(accent)s;border-radius:0 8px 8px 0;padding:12px 14px;">%(ladder_summary)s</div>%(ladder_notes)s
+</div>
+
+<div style="background:#0f1319;padding:20px 22px;font-size:13px;color:#8b98a9;">
+<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">The setup</div>
+<table style="width:100%%;border-collapse:collapse;">%(evidence_rows)s</table>
+<div style="margin-top:16px;">Confluence %(confluence)s. %(gate)s</div>
+</div>
+
+<div style="background:#0b0e13;border-radius:0 0 16px 16px;padding:16px 22px;font-size:11px;line-height:1.6;color:#5d6b7c;">Generated %(generated)s by the njira engine. All times are Central Africa Time (UTC+2). A signal is a setup, not a promise: the stop loss is where the idea is wrong.</div>
+
+</div></body></html>
 """
 
 
@@ -144,14 +123,14 @@ def log_signal_to_md(
     ladder = ev.get("tp_ladder") if isinstance(ev.get("tp_ladder"), list) else []
 
     lines = [
-        f"# Signal: {symbol} {direction} | {now.strftime('%Y-%m-%d %H:%M UTC')}",
+        f"# Signal: {symbol} {direction} | {now.astimezone(CAT).strftime('%Y-%m-%d %H:%M CAT')}",
         "**Status:** PENDING",
         "",
         "## When To Enter",
         "| Field | Value |",
         "|---|---|",
-        f"| Entry time | {_utc_str(entry_time)} |",
-        f"| Valid until | {_utc_str(ev.get('expiry_time'))} |",
+        f"| Entry time | {_cat_str(entry_time)} |",
+        f"| Valid until | {_cat_str(ev.get('expiry_time'))} |",
         f"| Entry | {_fmt(getattr(draft, 'entry', None))} |",
         f"| Stop Loss | {_fmt(getattr(draft, 'stop_loss', None))} |",
         f"| Risk:Reward | {rr:.2f} |",
@@ -254,10 +233,10 @@ def log_signal_to_md(
             "symbol": symbol,
             "direction": direction,
             "status": "PENDING (confirmation stands)",
-            "entry_time": _utc_str(entry_time),
+            "entry_time": _cat_str(entry_time),
             "entry_note": (
                 f"Enter at the {('buy' if buy else 'sell')} price below when this "
-                f"bar opens. Valid until {_utc_str(ev.get('expiry_time'))}."
+                f"bar opens. Valid until {_cat_str(ev.get('expiry_time'))}."
             ),
             "entry_rows": (
                 _row("Entry price", _fmt(getattr(draft, "entry", None)))
@@ -287,7 +266,7 @@ def log_signal_to_md(
             ),
             "confluence": f"{confluence_score}/{confluence_required}",
             "gate": f"Confluence gate {gate}.",
-            "generated": now.strftime("%Y-%m-%d %H:%M UTC"),
+            "generated": now.astimezone(CAT).strftime("%Y-%m-%d %H:%M CAT"),
         }
         html_path.write_text(html, encoding="utf-8")
     except Exception as exc:  # noqa: BLE001: markup must never block the .md
