@@ -442,6 +442,7 @@ class SignalEngine:
         self._min_rr = min_rr
         self._noise_floor = noise_floor
         self._lifecycle = SignalLifecycleManager()
+        self._primed_for: str | None = None
         from forex.analysis.signal_lifecycle import set_global_lifecycle
         set_global_lifecycle(self._lifecycle)
         self._contradiction = ContradictionEngine()
@@ -514,6 +515,13 @@ class SignalEngine:
         # "both" is a shortcut for running both
         if modes == ["both"]:
             modes = ["malysian", "Moving_averages"]
+
+        # The intelligence engines are keyed by timeframe only, so they hold
+        # whichever symbol was analysed last. Prime them for this symbol before
+        # any branch reads a zone, or a signal inherits another pair's prices.
+        # Reset first: every evaluate must re-prime on that close's candles.
+        self._primed_for = None
+        self._prime_engines(symbol)
 
         # Re-evaluate held WAITING setups BEFORE running strategies so a held
         # setup gets a chance to confirm/invalidate on every candle close
@@ -931,6 +939,21 @@ class SignalEngine:
             reason=f"10-SMA alignment: {direction} ({confidence:.0f}/100)",
         )
 
+    def _prime_engines(self, symbol: str) -> None:
+        """Run the intelligence engines on THIS symbol's candles.
+
+        Shared per-timeframe engines carry the last symbol's zones, so every
+        read must be preceded by a prime for the symbol being evaluated.
+        """
+        if self._primed_for == symbol:
+            return
+        structure_events = self._run_structure(symbol)
+        self._run_liquidity(symbol, structure_events)
+        self._run_ob(symbol, structure_events)
+        self._run_fvg(symbol)
+        self._run_poc(symbol)
+        self._primed_for = symbol
+
     def _build_confluence_draft(self, symbol: str) -> "Optional[SignalDraft]":
         """
         Run the intelligence engines and build the stronger of the BUY/SELL
@@ -939,11 +962,7 @@ class SignalEngine:
         path (_evaluate_confluence) and the status path (_analyze_confluence).
         """
         # ── 1. Run intelligence engines on cached candles ────────────────
-        structure_events = self._run_structure(symbol)
-        self._run_liquidity(symbol, structure_events)
-        self._run_ob(symbol, structure_events)
-        self._run_fvg(symbol)
-        self._run_poc(symbol)
+        self._prime_engines(symbol)
 
         # ── 2. Build drafts for BUY and SELL ─────────────────────────────
         buy_draft = self._build_draft(symbol, "BUY")
@@ -4417,6 +4436,10 @@ class SignalEngine:
             if candles:
                 events = engine.analyze(candles, tf)
                 all_events.extend(events)
+            else:
+                # No candles for this symbol at this TF: drop the previous
+                # symbol's state so its zones cannot leak into this signal.
+                engine.reset()
         return all_events
 
     def _run_liquidity(self, symbol: str, structure_events: list[dict]) -> None:
@@ -4424,6 +4447,8 @@ class SignalEngine:
             candles = self._cache.get(symbol, tf)
             if candles:
                 engine.analyze(candles, structure_events)
+            else:
+                engine.reset()
 
     def _run_ob(self, symbol: str, structure_events: list[dict]) -> None:
         for tf, engine in self._obs.items():
@@ -4431,18 +4456,24 @@ class SignalEngine:
             if candles:
                 poc_price = self._poc[tf].get_poc(tf) if tf in self._poc else None
                 engine.analyze(candles, structure_events, poc_price)
+            else:
+                engine.reset()
 
     def _run_poc(self, symbol: str) -> None:
         for tf, engine in self._poc.items():
             candles = self._cache.get(symbol, tf)
             if candles:
                 engine.compute_from_candles(candles, tf)
+            else:
+                engine.reset()
 
     def _run_fvg(self, symbol: str) -> None:
         for tf, engine in self._fvgs.items():
             candles = self._cache.get(symbol, tf)
             if candles:
                 engine.analyze(candles, tf)
+            else:
+                engine.reset()
 
     # ── Private: retest evidence (improve.md §34–§35) ──────────────────
 
