@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -148,6 +151,19 @@ class ContradictionEngine:
             recommendation = "TRADE"  # mild contradictions are acceptable
         else:
             recommendation = "TRADE"
+
+        if recommendation == "WAIT":
+            logger.info(
+                "[CONTRA] %s %s WAIT sev=%s net=%.0f contradict=%s",
+                symbol,
+                direction,
+                severity,
+                net,
+                ", ".join(
+                    "%s:%g" % (name, weight)
+                    for name, weight in sorted(contradicting.items(), key=lambda kv: -kv[1])
+                ) or "none",
+            )
 
         return ContradictionReport(
             supporting=supporting,
