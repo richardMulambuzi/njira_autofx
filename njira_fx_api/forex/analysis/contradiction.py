@@ -132,38 +132,46 @@ class ContradictionEngine:
         total_contradict = sum(contradicting.values())
         net = total_support - total_contradict
 
-        # Determine severity
-        if len(contradicting) == 0:
+        # Severity is graded by the WEIGHT that contradicts, not by how many
+        # checks fired. Counting made a 3 point grumble veto exactly as hard
+        # as a 15 point structural conflict, which held every setup at WAIT.
+        max_contradict = max(contradicting.values(), default=0.0)
+        if not contradicting:
             severity = "NONE"
-        elif len(contradicting) == 1:
+        elif total_contradict <= 8:
             severity = "MILD"
-        elif len(contradicting) <= 2:
+        elif total_contradict <= 20:
             severity = "MODERATE"
         else:
             severity = "SEVERE"
 
-        # Determine recommendation
-        if severity == "SEVERE" or net < 20:
+        # Determine recommendation. A single heavy contradiction still vetoes
+        # on its own, and thin support still vetoes, so the safety net keeps
+        # its teeth; only the weight-blind count veto is gone.
+        if max_contradict >= 15 or net < 20:
             recommendation = "WAIT"
-        elif severity == "MODERATE" and net < 40:
+        elif total_contradict >= 20 and net < 40:
             recommendation = "WAIT"
-        elif severity == "MILD":
-            recommendation = "TRADE"  # mild contradictions are acceptable
         else:
             recommendation = "TRADE"
 
-        if recommendation == "WAIT":
-            logger.info(
-                "[CONTRA] %s %s WAIT sev=%s net=%.0f contradict=%s",
-                symbol,
-                direction,
-                severity,
-                net,
-                ", ".join(
-                    "%s:%g" % (name, weight)
-                    for name, weight in sorted(contradicting.items(), key=lambda kv: -kv[1])
-                ) or "none",
-            )
+        logger.info(
+            "[CONTRA] %s %s %s sev=%s net=%.0f w=%.0f support=%s contradict=%s",
+            symbol,
+            direction,
+            recommendation,
+            severity,
+            net,
+            total_contradict,
+            ", ".join(
+                "%s:%g" % (name, weight)
+                for name, weight in sorted(supporting.items(), key=lambda kv: -kv[1])
+            ) or "none",
+            ", ".join(
+                "%s:%g" % (name, weight)
+                for name, weight in sorted(contradicting.items(), key=lambda kv: -kv[1])
+            ) or "none",
+        )
 
         return ContradictionReport(
             supporting=supporting,
