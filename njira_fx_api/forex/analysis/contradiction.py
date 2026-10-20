@@ -68,6 +68,7 @@ class ContradictionEngine:
         direction: str,  # "BUY" or "SELL"
         evidence: dict[str, float],
         market_state: dict,
+        base_confidence: Optional[float] = None,
     ) -> ContradictionReport:
         """
         Analyze a potential setup for contradictions.
@@ -94,10 +95,19 @@ class ContradictionEngine:
         # without this the net confidence would always be <= 0 and every
         # setup would collapse to WAIT. The `evidence` arg is documented as
         # the supporting evidence, so we treat positive weights as support.)
-        supporting: dict[str, float] = {
-            k: float(v) for k, v in (evidence or {}).items()
-            if isinstance(v, (int, float)) and v > 0
-        }
+        # The check weights below are percentage penalties against a setup's
+        # own 0-100 confidence, so support must be seeded on that same scale.
+        # Scraping every positive number in evidence mixed units: risk/reward
+        # ratios such as structural_rr 0.29 were summed as if they were
+        # confidence points, capping support near 10 against 25+ of fixed
+        # weights, which made the net floor unreachable for every setup.
+        if base_confidence is not None and float(base_confidence) > 0:
+            supporting: dict[str, float] = {"base_confidence": float(base_confidence)}
+        else:
+            supporting = {
+                k: float(v) for k, v in (evidence or {}).items()
+                if isinstance(v, (int, float)) and v > 0
+            }
         # MTF alignment evidence is a dict (per-timeframe breakdown), not a
         # float, so it previously contributed ZERO support and no signal could
         # ever reach TRADE. Convert aligned timeframes into real support weight.

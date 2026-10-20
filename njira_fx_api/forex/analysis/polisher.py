@@ -173,7 +173,8 @@ class SignalPolisher:
         contra_report = None
         if self._contradiction is not None:
             contra_report = self._contradiction.analyze(
-                symbol, direction, evidence, market_state
+                symbol, direction, evidence, market_state,
+                base_confidence=confidence,
             )
             if contra_report.recommendation == "INVALIDATE":
                 trace.append(PolishTraceEntry(

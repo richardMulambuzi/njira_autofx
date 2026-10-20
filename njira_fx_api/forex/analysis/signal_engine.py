@@ -672,7 +672,8 @@ class SignalEngine:
                 symbol, sig.direction, sig.confidence_evidence
             )
             report = self._contradiction.analyze(
-                symbol, sig.direction, sig.confidence_evidence, market_state
+                symbol, sig.direction, sig.confidence_evidence, market_state,
+                base_confidence=sig.confidence_score,
             )
             sig.confidence_evidence["contradiction"] = report.to_dict()
             if report.recommendation == "TRADE":
