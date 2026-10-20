@@ -54,42 +54,70 @@ def _cat_str(epoch: Any) -> str:
         return "-"
     return dt.astimezone(CAT).strftime("%Y-%m-%d %H:%M CAT")
 
+def _cat_str_precise(epoch: Any) -> str:
+    """CAT string to the second, for entry timing that has to be exact."""
+    try:
+        dt = datetime.datetime.fromtimestamp(float(epoch), tz=datetime.timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return "-"
+    return dt.astimezone(CAT).strftime("%Y-%m-%d %H:%M:%S CAT")
+
 
 # Plain (not f-string) so the CSS braces stay literal.  %-placeholders only.
 _EMAIL_TEMPLATE = """<!doctype html>
-<html><body style="margin:0;padding:0;background:#0b0e13;">
-<div style="max-width:640px;margin:0 auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#e8ecf1;">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#05070c;">
+<div style="background-color:#05070c;background-image:radial-gradient(circle at 12%% 0%%,rgba(56,189,248,0.20),transparent 45%%),radial-gradient(circle at 88%% 6%%,rgba(168,85,247,0.20),transparent 42%%),radial-gradient(circle at 50%% 100%%,rgba(34,197,94,0.10),transparent 55%%);padding:34px 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;margin:0 auto;">
+    <tr><td style="background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.14);border-radius:26px;box-shadow:0 28px 70px -24px rgba(0,0,0,0.92),inset 0 1px 0 rgba(255,255,255,0.22);overflow:hidden;">
 
-<div style="background:%(accent)s;border-radius:16px 16px 0 0;padding:22px;">
-<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.85;">njira signal</div>
-<div style="font-size:34px;font-weight:800;margin-top:10px;line-height:1.05;letter-spacing:-.5px;">%(symbol)s <span style="display:inline-block;background:#0b0e13;color:#ffffff;border-radius:999px;padding:3px 13px;font-size:15px;font-weight:700;vertical-align:middle;">%(direction)s</span></div>
-<div style="font-size:14px;opacity:.92;margin-top:10px;">%(status)s</div>
+      <div style="height:3px;background:linear-gradient(90deg,%(accent)s,rgba(56,189,248,0.95),rgba(168,85,247,0.95));"></div>
+
+      <div style="padding:26px 28px 20px;">
+        <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">njira engine signal</div>
+        <div style="margin-top:12px;font-size:34px;line-height:1;font-weight:800;color:#ffffff;letter-spacing:-1px;">%(symbol)s<span style="display:inline-block;vertical-align:middle;margin-left:10px;padding:5px 12px;border-radius:999px;font-size:11px;letter-spacing:1.6px;font-weight:800;color:#05070c;background:%(accent)s;">%(direction)s</span></div>
+        <div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,0.55);">%(status)s</div>
+      </div>
+
+      <div style="margin:0 18px 18px;padding:20px 22px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;">
+        <div style="font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">entry window</div>
+        <div style="margin-top:10px;font-size:29px;line-height:1.15;font-weight:800;color:#ffffff;letter-spacing:-0.6px;font-variant-numeric:tabular-nums;">%(entry_time)s</div>
+        <div style="margin-top:8px;font-size:12.5px;line-height:1.55;color:rgba(255,255,255,0.62);">%(entry_note)s</div>
+        <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;border-collapse:collapse;">%(entry_rows)s</table>
+      </div>
+
+      <div style="margin:0 18px 18px;padding:20px 22px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;">
+        <div style="font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">take profit ladder</div>
+        <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;border-collapse:collapse;">
+          <tr>
+            <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">level</th>
+            <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">price</th>
+            <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">chance</th>
+            <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 0 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">risk</th>
+          </tr>
+          %(ladder_rows)s
+        </table>
+        <div style="margin-top:16px;padding:13px 15px;background:rgba(255,255,255,0.03);border-left:3px solid %(accent)s;border-radius:10px;font-size:12.5px;line-height:1.6;color:rgba(255,255,255,0.70);">
+          <div>%(ladder_summary)s</div>
+          <div style="margin-top:8px;color:rgba(255,255,255,0.48);">%(ladder_notes)s</div>
+        </div>
+      </div>
+
+      <div style="margin:0 18px 20px;padding:20px 22px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;">
+        <div style="font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">the setup</div>
+        <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;border-collapse:collapse;">%(evidence_rows)s</table>
+        <div style="margin-top:14px;font-size:12px;color:rgba(255,255,255,0.58);">Confluence <span style="color:#ffffff;font-weight:700;">%(confluence)s</span>. %(gate)s</div>
+      </div>
+
+      <div style="padding:16px 28px 24px;font-size:10.5px;line-height:1.7;color:rgba(255,255,255,0.34);border-top:1px solid rgba(255,255,255,0.07);">
+        Generated %(generated)s by the njira engine. All times are Central Africa Time (UTC+2).<br>
+        A signal is a setup, not a promise. The stop loss is where the idea is wrong.
+      </div>
+
+    </td></tr>
+  </table>
 </div>
-
-<div style="background:#161b22;padding:22px;">
-<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#8b98a9;">Where to enter</div>
-<div style="font-size:28px;font-weight:800;margin:10px 0 4px;letter-spacing:-.3px;">%(entry_time)s</div>
-<div style="font-size:13px;color:#8b98a9;">%(entry_note)s</div>
-<table style="width:100%%;border-collapse:collapse;margin-top:18px;font-size:14px;border-top:1px solid #232a33;">%(entry_rows)s</table>
-</div>
-
-<div style="background:#12171e;padding:22px;">
-<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#8b98a9;">Take profit ladder</div>
-<table style="width:100%%;border-collapse:collapse;margin-top:14px;font-size:13px;">
-<tr style="color:#8b98a9;text-align:left;font-size:11px;letter-spacing:1px;text-transform:uppercase;"><th style="padding:6px 4px;font-weight:600;">Level</th><th style="padding:6px 4px;font-weight:600;">Price</th><th style="padding:6px 4px;font-weight:600;">Chance</th><th style="padding:6px 4px;font-weight:600;">Risk</th></tr>%(ladder_rows)s</table>
-<div style="font-size:13px;color:#c2ccd8;margin-top:16px;background:#0d1117;border-left:3px solid %(accent)s;border-radius:0 8px 8px 0;padding:12px 14px;">%(ladder_summary)s</div>%(ladder_notes)s
-</div>
-
-<div style="background:#0f1319;padding:20px 22px;font-size:13px;color:#8b98a9;">
-<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">The setup</div>
-<table style="width:100%%;border-collapse:collapse;">%(evidence_rows)s</table>
-<div style="margin-top:16px;">Confluence %(confluence)s. %(gate)s</div>
-</div>
-
-<div style="background:#0b0e13;border-radius:0 0 16px 16px;padding:16px 22px;font-size:11px;line-height:1.6;color:#5d6b7c;">Generated %(generated)s by the njira engine. All times are Central Africa Time (UTC+2). A signal is a setup, not a promise: the stop loss is where the idea is wrong.</div>
-
-</div></body></html>
-"""
+</body></html>"""
 
 
 def _mail_card(path: pathlib.Path, html: str) -> None:
@@ -145,6 +173,16 @@ def log_signal_to_md(
         _Q = {i: f"Q{i}" for i in range(1, 16)}
 
     entry_time = getattr(draft, "entry_time", None)
+    if entry_time is None:
+        entry_time = ev.get("entry_time")
+    if entry_time is None:
+        # Confluence drafts carry no bar stamp. The card is written the moment
+        # the setup confirms, so that instant is the entry, and a dash here
+        # left the reader with no time to prepare.
+        entry_time = now.timestamp()
+    expiry_time = ev.get("expiry_time")
+    if expiry_time is None:
+        expiry_time = float(entry_time) + 30 * 60  # one M15 horizon
     ladder = ev.get("tp_ladder") if isinstance(ev.get("tp_ladder"), list) else []
 
     lines = [
@@ -154,8 +192,8 @@ def log_signal_to_md(
         "## When To Enter",
         "| Field | Value |",
         "|---|---|",
-        f"| Entry time | {_cat_str(entry_time)} |",
-        f"| Valid until | {_cat_str(ev.get('expiry_time'))} |",
+        f"| Entry time | {_cat_str_precise(entry_time)} |",
+        f"| Valid until | {_cat_str_precise(expiry_time)} |",
         f"| Entry | {_fmt(getattr(draft, 'entry', None))} |",
         f"| Stop Loss | {_fmt(getattr(draft, 'stop_loss', None))} |",
         f"| Risk:Reward | {rr:.2f} |",
@@ -259,10 +297,10 @@ def log_signal_to_md(
             "symbol": symbol,
             "direction": direction,
             "status": "PENDING (confirmation stands)",
-            "entry_time": _cat_str(entry_time),
+            "entry_time": _cat_str_precise(entry_time),
             "entry_note": (
                 f"Enter at the {('buy' if buy else 'sell')} price below when this "
-                f"bar opens. Valid until {_cat_str(ev.get('expiry_time'))}."
+                f"bar opens. Valid until {_cat_str_precise(expiry_time)}."
             ),
             "entry_rows": (
                 _row("Entry price", _fmt(getattr(draft, "entry", None)))
