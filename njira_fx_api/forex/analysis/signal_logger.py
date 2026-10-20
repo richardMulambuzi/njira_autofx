@@ -92,6 +92,7 @@ _EMAIL_TEMPLATE = """<!doctype html>
           <tr>
             <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">level</th>
             <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">price</th>
+            <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">target</th>
             <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 6px 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">chance</th>
             <th align="left" style="font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.38);font-weight:700;padding:0 0 9px 0;border-bottom:1px solid rgba(255,255,255,0.10);">risk</th>
           </tr>
@@ -274,10 +275,14 @@ def log_signal_to_md(
             )
 
         def _ladder_row(rung: dict) -> str:
-            edge = "border-top:1px solid #1f2730;"
+            edge = "border-top:1px solid rgba(255,255,255,0.07);"
             return (
                 f'<tr><td style="padding:7px 4px;{edge}"><b>{rung.get("name")}</b></td>'
-                f'<td style="padding:7px 4px;{edge}">{rung.get("price")}</td>'
+                f'<td style="padding:7px 4px;{edge}font-variant-numeric:tabular-nums;">'
+                f'{rung.get("price")}</td>'
+                f'<td style="padding:7px 4px;{edge}color:rgba(255,255,255,0.72);'
+                f'font-variant-numeric:tabular-nums;">'
+                f'{float(rung.get("distance_pips") or 0):.1f} pips</td>'
                 f'<td style="padding:7px 4px;{edge}">'
                 f'{float(rung.get("hit_chance") or 0) * 100:.0f}%</td>'
                 f'<td style="padding:7px 4px;{edge}color:#8b98a9;">'
