@@ -42,6 +42,7 @@ def build_tp_ladder(
     stop_loss: float,
     digits: Optional[int] = None,
     beyond: Optional[float] = None,
+    pip_size: Optional[float] = None,
 ) -> list[dict]:
     """Rungs from entry to 5R, nearest first.
 
@@ -57,7 +58,10 @@ def build_tp_ladder(
         return []
     if digits is None:
         digits = digits_for(entry)
-    pip = 10.0 ** (1 - digits)
+    # A pip is a property of the instrument, not of the price magnitude: oil at
+    # 99 and EURUSD at 1.12 do not share a pip. Callers that know the symbol
+    # pass its real size; the magnitude guess stays as the fallback.
+    pip = float(pip_size) if pip_size else 10.0 ** (1 - digits)
 
     ladder: list[dict] = []
     for i, k in enumerate(TP_LADDER_R, start=1):

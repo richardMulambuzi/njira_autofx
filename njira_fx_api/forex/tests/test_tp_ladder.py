@@ -99,4 +99,11 @@ def test_card_writes_a_companion_html_for_the_email(tmp_path, monkeypatch):
     body = html.read_text()
     assert "%(" not in body  # every template placeholder was filled
     assert "TP1" in body and "TP7" in body
-    assert "When to enter" in body.lower() or "Where to enter" in body
+    assert "when to enter" in body.lower() or "where to enter" in body.lower()
+
+
+def test_ladder_pips_use_the_instrument_pip_size():
+    """A pip belongs to the instrument: oil at 99 is not priced in FX pips."""
+    ladder = build_tp_ladder("SELL", 99.172, 100.520, pip_size=0.01)
+
+    assert ladder[0]["distance_pips"] == pytest.approx(134.8, abs=0.1)

@@ -82,6 +82,7 @@ _EMAIL_TEMPLATE = """<!doctype html>
       <div style="margin:0 18px 18px;padding:20px 22px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;">
         <div style="font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">entry window</div>
         <div style="margin-top:10px;font-size:29px;line-height:1.15;font-weight:800;color:#ffffff;letter-spacing:-0.6px;font-variant-numeric:tabular-nums;">%(entry_time)s</div>
+<div style="font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.42);font-weight:700;">when to enter</div>
         <div style="margin-top:8px;font-size:12.5px;line-height:1.55;color:rgba(255,255,255,0.62);">%(entry_note)s</div>
         <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;border-collapse:collapse;">%(entry_rows)s</table>
       </div>

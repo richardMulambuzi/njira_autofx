@@ -56,6 +56,7 @@ from forex.analysis.engulfing import (
 from forex.analysis.storyline import analyze_storyline, storyline_allows, tf_direction
 from forex.analysis.sessions import in_trade_session, session_of, killzones_of
 from forex.sim.rr import RRService, StrategyType, Regime
+from forex.sim.instruments import get_spec
 from forex.analysis.marriage import entry_at_point3, marriage_trendline, line_value
 from forex.analysis.snr_breakout import analyze_breakout
 
@@ -384,6 +385,14 @@ class _FormingCacheView:
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
+
+
+def _symbol_pip_size(symbol: str) -> Optional[float]:
+    """Pip size for the instrument, or None when the registry has no entry."""
+    try:
+        return get_spec(symbol).pip_size
+    except Exception:  # noqa: BLE001 - unknown symbol keeps the magnitude guess
+        return None
 
 
 class SignalEngine:
@@ -1140,7 +1149,8 @@ class SignalEngine:
                         try:
                             from forex.analysis.tp_ladder import build_tp_ladder
                             draft.evidence["tp_ladder"] = build_tp_ladder(
-                                draft.direction, draft.entry, draft.stop_loss
+                                draft.direction, draft.entry, draft.stop_loss,
+                                pip_size=_symbol_pip_size(symbol),
                             )
                             if draft.entry_time is not None:
                                 draft.evidence["expiry_time"] = (
@@ -3826,6 +3836,7 @@ class SignalEngine:
 
                     draft.evidence["tp_ladder"] = build_tp_ladder(
                         draft.direction, draft.entry, draft.stop_loss,
+                        pip_size=_symbol_pip_size(symbol),
                     )
                     if draft.entry_time is not None:
                         draft.evidence["expiry_time"] = float(draft.entry_time) + (
